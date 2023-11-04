@@ -255,6 +255,8 @@ impl MappableCommand {
         move_line_down, "Move down",
         move_visual_line_up, "Move up",
         move_visual_line_down, "Move down",
+        move_select_line_up, "Modify line selection up.",
+        move_select_line_down, "Modify line selection down.",
         extend_char_left, "Extend left",
         extend_char_right, "Extend right",
         extend_line_up, "Extend up",
@@ -356,6 +358,8 @@ impl MappableCommand {
         normal_mode, "Enter normal mode",
         select_mode, "Enter selection extend mode",
         exit_select_mode, "Exit selection mode",
+        select_line_mode, "Enter line selection extend mode",
+        exit_select_line_mode, "Exit line selection mode",
         goto_definition, "Goto definition",
         goto_declaration, "Goto declaration",
         add_newline_above, "Add newline above",
@@ -718,6 +722,64 @@ fn extend_visual_line_down(cx: &mut Context) {
         Direction::Forward,
         Movement::Extend,
     )
+}
+
+fn move_select_line_down(cx: &mut Context) {
+    let count = cx.count();
+    let (view, doc) = current!(cx.editor);
+
+    let text = doc.text();
+    let selection = doc.selection(view.id).clone().transform(|range| {
+        let (start_line, end_line) = range.line_range(text.slice(..));
+
+        let start = text.line_to_char(start_line);
+        let end = text.line_to_char(
+            (end_line + 1) // newline of end_line
+                .min(text.len_lines()),
+        );
+
+        match range.direction() {
+            Direction::Backward if start_line == end_line => Range::new(
+                start,
+                text.line_to_char((end_line + count + 1).min(text.len_lines())),
+            ),
+            Direction::Forward => Range::new(
+                start,
+                text.line_to_char((end_line + count + 1).min(text.len_lines())),
+            ),
+            Direction::Backward => Range::new(end, text.line_to_char(start_line + count)),
+        }
+    });
+
+    doc.set_selection(view.id, selection);
+}
+
+fn move_select_line_up(cx: &mut Context) {
+    let count = cx.count();
+    let (view, doc) = current!(cx.editor);
+
+    let text = doc.text();
+    let selection = doc.selection(view.id).clone().transform(|range| {
+        let (start_line, end_line) = range.line_range(text.slice(..));
+
+        let start = text.line_to_char(start_line);
+        let end = text.line_to_char(
+            (end_line + 1) // newline of end_line
+                .min(text.len_lines()),
+        );
+
+        match range.direction() {
+            Direction::Forward if start_line == end_line => {
+                Range::new(end, text.line_to_char(start_line.saturating_sub(count)))
+            }
+            Direction::Backward => {
+                Range::new(end, text.line_to_char(start_line.saturating_sub(count)))
+            }
+            Direction::Forward => Range::new(start, text.line_to_char(end_line)),
+        }
+    });
+
+    doc.set_selection(view.id, selection);
 }
 
 fn goto_line_end_impl(view: &mut View, doc: &mut Document, movement: Movement) {
@@ -3575,6 +3637,43 @@ fn exit_select_mode(cx: &mut Context) {
     }
 }
 
+fn select_line_mode(cx: &mut Context) {
+    let (view, doc) = current!(cx.editor);
+
+    doc.set_selection(
+        view.id,
+        doc.selection(view.id).clone().transform(|range| {
+            let text = doc.text();
+
+            let (start_line, end_line) = range.line_range(text.slice(..));
+            let start = text.line_to_char(start_line);
+            let end = text.line_to_char((end_line + 1).min(text.len_lines()));
+
+            Range::new(start, end).with_direction(range.direction())
+        }),
+    );
+
+    cx.editor.mode = Mode::SelectLine;
+}
+
+fn exit_select_line_mode(cx: &mut Context) {
+    let (view, doc) = current!(cx.editor);
+    let selection = doc.selection(view.id).clone().transform(|range| {
+        let text = doc.text();
+
+        let (start_line, end_line) = range.line_range(text.slice(..));
+        let first = text.line_to_char(start_line);
+        let last = text.line_to_char(end_line.min(text.len_lines()));
+
+        match range.direction() {
+            Direction::Forward => Range::new(last, last),
+            Direction::Backward => Range::new(first, first),
+        }
+    });
+    doc.set_selection(view.id, selection);
+    cx.editor.mode = Mode::Normal;
+}
+
 fn goto_first_diag(cx: &mut Context) {
     let (view, doc) = current!(cx.editor);
     let selection = match doc.diagnostics().first() {
@@ -4300,7 +4399,8 @@ pub(crate) fn paste_bracketed_value(cx: &mut Context, contents: String) {
     let count = cx.count();
     let paste = match cx.editor.mode {
         Mode::Insert | Mode::Select => Paste::Cursor,
-        Mode::Normal => Paste::Before,
+        // TODO(kladd): We'll see.
+        Mode::Normal | Mode::SelectLine => Paste::Before,
     };
     let (view, doc) = current!(cx.editor);
     paste_impl(&[contents], doc, view, paste, count, cx.editor.mode);

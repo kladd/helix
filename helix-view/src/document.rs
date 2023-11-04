@@ -53,6 +53,7 @@ pub enum Mode {
     Normal = 0,
     Select = 1,
     Insert = 2,
+    SelectLine = 3,
 }
 
 impl Display for Mode {
@@ -61,6 +62,7 @@ impl Display for Mode {
             Mode::Normal => f.write_str("normal"),
             Mode::Select => f.write_str("select"),
             Mode::Insert => f.write_str("insert"),
+            Mode::SelectLine => f.write_str("select-line"),
         }
     }
 }
@@ -73,6 +75,7 @@ impl FromStr for Mode {
             "normal" => Ok(Mode::Normal),
             "select" => Ok(Mode::Select),
             "insert" => Ok(Mode::Insert),
+            "select-line" => Ok(Mode::SelectLine),
             _ => bail!("Invalid mode '{}'", s),
         }
     }
