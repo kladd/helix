@@ -403,6 +403,7 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
     select_line.merge_nodes(keymap!({ "Select line mode"
         "j" | "down" => move_select_line_down,
         "k" | "up" => move_select_line_up,
+        "p" => replace_with_yanked,
 
         "esc" => exit_select_line_mode,
         "v" => select_mode,
