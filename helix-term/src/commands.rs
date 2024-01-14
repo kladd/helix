@@ -407,6 +407,8 @@ impl MappableCommand {
         delete_char_forward, "Delete next char",
         delete_word_backward, "Delete previous word",
         delete_word_forward, "Delete next word",
+        delete_textobject_around, "Delete around object",
+        delete_textobject_inner, "Delete inside object",
         kill_to_line_start, "Delete till start of line",
         kill_to_line_end, "Delete till end of line",
         undo, "Undo change",
@@ -5458,11 +5460,27 @@ fn select_textobject_around(cx: &mut Context) {
     select_textobject(cx, textobject::TextObject::Around);
 }
 
+fn delete_textobject_around(cx: &mut Context) {
+    select_textobject_impl(cx, textobject::TextObject::Around, delete_selection);
+}
+
+fn delete_textobject_inner(cx: &mut Context) {
+    select_textobject_impl(cx, textobject::TextObject::Inside, delete_selection);
+}
+
 fn select_textobject_inner(cx: &mut Context) {
     select_textobject(cx, textobject::TextObject::Inside);
 }
 
 fn select_textobject(cx: &mut Context, objtype: textobject::TextObject) {
+    select_textobject_impl(cx, objtype, |_| {});
+}
+
+fn select_textobject_impl(
+    cx: &mut Context,
+    objtype: textobject::TextObject,
+    on_select_cb: impl FnOnce(&mut Context) + 'static,
+) {
     let count = cx.count();
 
     cx.on_next_key(move |cx, event| {
@@ -5543,6 +5561,7 @@ fn select_textobject(cx: &mut Context, objtype: textobject::TextObject) {
                 doc.set_selection(view.id, selection);
             };
             cx.editor.apply_motion(textobject);
+            on_select_cb(cx);
         }
     });
 

@@ -70,7 +70,18 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
         "o" => open_below,
         "O" => open_above,
 
-        "d" => delete_selection,
+        "d" => { "Delete"
+            "a" => delete_textobject_around,
+            "i" => delete_textobject_inner,
+        },
+        "m" => { "Match"
+            "m" => match_brackets,
+            "s" => surround_add,
+            "r" => surround_replace,
+            "d" => surround_delete,
+            "a" => select_textobject_around,
+            "i" => select_textobject_inner,
+        },
         "A-d" => delete_selection_noyank,
         "c" => change_selection,
         "A-c" => change_selection_noyank,
@@ -100,14 +111,6 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
         "X" => extend_to_line_bounds,
         "A-x" => shrink_to_line_bounds,
 
-        "m" => { "Match"
-            "m" => match_brackets,
-            "s" => surround_add,
-            "r" => surround_replace,
-            "d" => surround_delete,
-            "a" => select_textobject_around,
-            "i" => select_textobject_inner,
-        },
         "[" => { "Left bracket"
             "d" => goto_prev_diag,
             "D" => goto_first_diag,
