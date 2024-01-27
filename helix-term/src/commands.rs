@@ -427,6 +427,11 @@ impl MappableCommand {
         yank_main_selection_to_clipboard, "Yank main selection to clipboard",
         yank_joined_to_primary_clipboard, "Join and yank selections to primary clipboard",
         yank_main_selection_to_primary_clipboard, "Yank main selection to primary clipboard",
+        yank_textobject_around, "Yank around object",
+        yank_textobject_inner, "Yank inside object",
+        yank_till_char, "Yank till next occurance of character",
+        yank_through_char, "Yank through next occurance of character",
+        yank_to_line_end, "Yank till end of line",
         replace_with_yanked, "Replace with yanked text",
         replace_selections_with_clipboard, "Replace selections by clipboard content",
         replace_selections_with_primary_clipboard, "Replace selections by primary clipboard",
@@ -4223,6 +4228,26 @@ fn commit_undo_checkpoint(cx: &mut Context) {
 }
 
 // Yank / Paste
+fn yank_textobject_around(cx: &mut Context) {
+    select_textobject_impl(cx, textobject::TextObject::Around, yank);
+}
+
+fn yank_textobject_inner(cx: &mut Context) {
+    select_textobject_impl(cx, textobject::TextObject::Inside, yank);
+}
+
+fn yank_till_char(cx: &mut Context) {
+    find_char_cb(cx, Direction::Forward, false, true, yank);
+}
+
+fn yank_through_char(cx: &mut Context) {
+    find_char_cb(cx, Direction::Forward, true, true, yank);
+}
+
+fn yank_to_line_end(cx: &mut Context) {
+    find_char_line_ending(cx, cx.count(), Direction::Forward, true, true);
+    yank(cx);
+}
 
 fn yank(cx: &mut Context) {
     yank_impl(cx.editor, cx.register.unwrap_or('"'));

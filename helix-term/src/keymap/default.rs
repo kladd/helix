@@ -154,7 +154,12 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
         "A-u" => earlier,
         "A-U" => later,
 
-        "y" => yank,
+        "y" => { "Yank"
+            "a" => yank_textobject_around,
+            "i" => yank_textobject_inner,
+            "t" => yank_till_char,
+            "f" => yank_through_char,
+        },
         // yank_all
         "p" => paste_after,
         // paste_all
