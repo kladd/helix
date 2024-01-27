@@ -3645,10 +3645,9 @@ fn select_mode(cx: &mut Context) {
 }
 
 fn exit_select_mode(cx: &mut Context) {
-    if cx.editor.mode == Mode::Select {
+    if cx.editor.mode == Mode::Select || cx.editor.mode == Mode::SelectLine {
         cx.editor.mode = Mode::Normal;
-    } else if cx.editor.mode == Mode::SelectLine {
-        cx.editor.mode = Mode::Normal;
+        collapse_selection(cx);
     }
 }
 
