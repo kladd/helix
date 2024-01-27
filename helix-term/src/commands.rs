@@ -249,6 +249,7 @@ impl MappableCommand {
     #[rustfmt::skip]
     static_commands!(
         no_op, "Do nothing",
+        escape, "Enter normal mode",
         move_char_left, "Move left",
         move_char_right, "Move right",
         move_line_up, "Move up",
@@ -638,6 +639,11 @@ impl PartialEq for MappableCommand {
 }
 
 fn no_op(_cx: &mut Context) {}
+
+fn escape(cx: &mut Context) {
+    normal_mode(cx);
+    collapse_selection(cx);
+}
 
 type MoveFn =
     fn(RopeSlice, Range, Direction, usize, Movement, &TextFormat, &mut TextAnnotations) -> Range;
@@ -2854,10 +2860,14 @@ fn collapse_selection(cx: &mut Context) {
     let (view, doc) = current!(cx.editor);
     let text = doc.text().slice(..);
 
-    let selection = doc.selection(view.id).clone().transform(|range| {
-        let pos = range.cursor(text);
-        Range::new(pos, pos)
-    });
+    let selection = doc
+        .selection(view.id)
+        .clone()
+        .into_single()
+        .transform(|range| {
+            let pos = range.cursor(text);
+            Range::new(pos, pos)
+        });
     doc.set_selection(view.id, selection);
 }
 

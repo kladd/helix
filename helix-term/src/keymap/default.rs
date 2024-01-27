@@ -192,7 +192,7 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
 
         "A-:" => ensure_selections_forward,
 
-        "esc" => normal_mode,
+        "esc" => escape,
         "C-b" | "pageup" => page_up,
         "C-f" | "pagedown" => page_down,
         "C-u" => page_cursor_half_up,
@@ -373,7 +373,6 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
 
         "home" => extend_to_line_start,
         "end" => extend_to_line_end,
-        "esc" => exit_select_mode,
 
         "v" => normal_mode,
         "g" => { "Goto"
@@ -415,7 +414,6 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
         "p" => replace_with_yanked,
         "d" => delete_selection,
 
-        "esc" => exit_select_line_mode,
         "v" => select_mode,
     }));
     hashmap!(
