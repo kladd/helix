@@ -70,6 +70,7 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
         "o" => open_below,
         "O" => open_above,
 
+        "D" => delete_to_line_end,
         "d" => { "Delete"
             "a" => delete_textobject_around,
             "i" => delete_textobject_inner,

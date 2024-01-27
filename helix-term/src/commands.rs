@@ -411,6 +411,7 @@ impl MappableCommand {
         delete_textobject_inner, "Delete inside object",
         delete_till_char, "Delete till next occurance of character",
         delete_through_char, "Delete through next occurance of character",
+        delete_to_line_end, "Delete till end of line",
         kill_to_line_start, "Delete till start of line",
         kill_to_line_end, "Delete till end of line",
         undo, "Undo change",
@@ -5486,6 +5487,11 @@ fn delete_till_char(cx: &mut Context) {
 
 fn delete_through_char(cx: &mut Context) {
     find_char_cb(cx, Direction::Forward, true, true, delete_selection);
+}
+
+fn delete_to_line_end(cx: &mut Context) {
+    find_char_line_ending(cx, cx.count(), Direction::Forward, true, true);
+    delete_selection(cx);
 }
 
 fn select_textobject_inner(cx: &mut Context) {
