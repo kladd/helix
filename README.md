@@ -1,6 +1,7 @@
 # Helix with things I like from Vim
 * Visual line mode
 * `action -> selection` commands
+* Misc. Vim-alike behavior
 
 ## Visual line mode
 
@@ -12,7 +13,13 @@
 
 ## `action -> selection` commands
 
-Only delete for now: `daW`, `diW`, etc.
+* Delete `daw`, `diw`, `dt<char>`, etc.
+* Yank `yaw`, `yiw`, `yt<char>`, etc.
+
+## Misc.
+
+* Find to/through character does not select unless in visual mode.
+* Exiting visual modes clears selection.
 
 ---
 
