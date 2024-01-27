@@ -380,6 +380,7 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
             "j" => extend_line_down,
             "w" => extend_to_word,
         },
+        "y" => yank,
     }));
     let insert = keymap!({ "Insert mode"
         "esc" => normal_mode,
@@ -415,6 +416,7 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
         "d" => delete_selection,
 
         "v" => select_mode,
+        "y" => yank,
     }));
     hashmap!(
         Mode::Normal => normal,
