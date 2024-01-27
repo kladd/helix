@@ -409,6 +409,8 @@ impl MappableCommand {
         delete_word_forward, "Delete next word",
         delete_textobject_around, "Delete around object",
         delete_textobject_inner, "Delete inside object",
+        delete_till_char, "Delete till next occurance of character",
+        delete_through_char, "Delete through next occurance of character",
         kill_to_line_start, "Delete till start of line",
         kill_to_line_end, "Delete till end of line",
         undo, "Undo change",
@@ -1490,7 +1492,13 @@ fn find_char_line_ending(
     doc.set_selection(view.id, selection);
 }
 
-fn find_char(cx: &mut Context, direction: Direction, inclusive: bool, extend: bool) {
+fn find_char_cb(
+    cx: &mut Context,
+    direction: Direction,
+    inclusive: bool,
+    extend: bool,
+    on_select_cb: impl FnOnce(&mut Context) + 'static,
+) {
     // TODO: count is reset to 1 before next key so we move it into the closure here.
     // Would be nice to carry over.
     let count = cx.count();
@@ -1530,10 +1538,13 @@ fn find_char(cx: &mut Context, direction: Direction, inclusive: bool, extend: bo
         };
 
         cx.editor.apply_motion(motion);
+        on_select_cb(cx);
     })
 }
 
-//
+fn find_char(cx: &mut Context, direction: Direction, inclusive: bool, extend: bool) {
+    find_char_cb(cx, direction, inclusive, extend, |_| {})
+}
 
 #[inline]
 fn find_char_impl<F, M: CharMatcher + Clone + Copy>(
@@ -5468,6 +5479,14 @@ fn delete_textobject_around(cx: &mut Context) {
 
 fn delete_textobject_inner(cx: &mut Context) {
     select_textobject_impl(cx, textobject::TextObject::Inside, delete_selection);
+}
+
+fn delete_till_char(cx: &mut Context) {
+    find_char_cb(cx, Direction::Forward, false, true, delete_selection);
+}
+
+fn delete_through_char(cx: &mut Context) {
+    find_char_cb(cx, Direction::Forward, true, true, delete_selection);
 }
 
 fn select_textobject_inner(cx: &mut Context) {

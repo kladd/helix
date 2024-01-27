@@ -73,6 +73,8 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
         "d" => { "Delete"
             "a" => delete_textobject_around,
             "i" => delete_textobject_inner,
+            "t" => delete_till_char,
+            "f" => delete_through_char,
         },
         "m" => { "Match"
             "m" => match_brackets,
