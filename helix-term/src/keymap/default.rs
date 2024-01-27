@@ -350,6 +350,7 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
         "W" => extend_next_long_word_start,
         "B" => extend_prev_long_word_start,
         "E" => extend_next_long_word_end,
+        "d" => delete_selection,
 
         "A-e" => extend_parent_node_end,
         "A-b" => extend_parent_node_start,
@@ -404,6 +405,7 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
         "j" | "down" => move_select_line_down,
         "k" | "up" => move_select_line_up,
         "p" => replace_with_yanked,
+        "d" => delete_selection,
 
         "esc" => exit_select_line_mode,
         "v" => select_mode,
