@@ -21,6 +21,24 @@
 * Find to/through character does not select unless in visual mode.
 * Exiting visual modes clears selection.
 
+## Installation/Use
+
+From `helix` repo:
+```sh
+export HELIX_RUNTIME=$PWD/runtime
+cargo install --profile opt --locked --path helix-term
+```
+
+Check local language support:
+```sh
+hx --health
+```
+
+Edit something:
+```
+hx
+```
+
 ---
 
 [Helix README](https://github.com/helix-editor/helix/blob/master/README.md)
