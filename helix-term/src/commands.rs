@@ -5525,7 +5525,7 @@ fn delete_through_char(cx: &mut Context) {
 }
 
 fn delete_to_line_end(cx: &mut Context) {
-    find_char_line_ending(cx, cx.count(), Direction::Forward, true, true);
+    find_char_line_ending(cx, cx.count(), Direction::Forward, false, true);
     delete_selection(cx);
 }
 
