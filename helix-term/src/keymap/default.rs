@@ -381,6 +381,8 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
             "w" => extend_to_word,
         },
         "y" => yank,
+        "a" => select_textobject_around,
+        "i" => select_textobject_inner,
     }));
     let insert = keymap!({ "Insert mode"
         "esc" => normal_mode,
