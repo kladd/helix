@@ -433,7 +433,7 @@ impl Default for LspConfig {
             display_messages: false,
             auto_signature_help: true,
             display_signature_help_docs: true,
-            display_inlay_hints: false,
+            display_inlay_hints: true,
             snippets: true,
             goto_reference_include_declaration: true,
         }
