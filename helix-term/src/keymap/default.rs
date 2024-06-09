@@ -110,7 +110,7 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
         "A-a" => select_all_siblings,
 
         "%" => select_all,
-        "x" => extend_line_below,
+        "x" => delete_selection,
         "X" => extend_to_line_bounds,
         "A-x" => shrink_to_line_bounds,
 
