@@ -4,3 +4,4 @@ helix-term/rustfmt.toml
 result
 runtime/grammars
 .idea/
+.DS_Store
