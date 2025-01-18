@@ -23,6 +23,7 @@
 | circom | ✓ |  |  | `circom-lsp` |
 | clojure | ✓ |  |  | `clojure-lsp` |
 | cmake | ✓ | ✓ | ✓ | `cmake-language-server` |
+| codeql | ✓ | ✓ |  | `codeql` |
 | comment | ✓ |  |  |  |
 | common-lisp | ✓ |  | ✓ | `cl-lsp` |
 | cpon | ✓ |  | ✓ |  |
@@ -80,6 +81,7 @@
 | gowork | ✓ |  |  | `gopls` |
 | gpr | ✓ |  |  | `ada_language_server` |
 | graphql | ✓ | ✓ |  | `graphql-lsp` |
+| gren | ✓ | ✓ |  |  |
 | groovy | ✓ |  |  |  |
 | gts | ✓ | ✓ | ✓ | `typescript-language-server`, `vscode-eslint-language-server`, `ember-language-server` |
 | hare | ✓ |  |  |  |
@@ -115,6 +117,7 @@
 | kdl | ✓ | ✓ | ✓ |  |
 | koka | ✓ |  | ✓ | `koka` |
 | kotlin | ✓ |  |  | `kotlin-language-server` |
+| koto | ✓ | ✓ | ✓ | `koto-ls` |
 | latex | ✓ | ✓ |  | `texlab` |
 | ld | ✓ |  | ✓ |  |
 | ldif | ✓ |  |  |  |
@@ -139,6 +142,7 @@
 | msbuild | ✓ |  | ✓ |  |
 | nasm | ✓ | ✓ |  |  |
 | nestedtext | ✓ | ✓ | ✓ |  |
+| nginx | ✓ |  |  |  |
 | nickel | ✓ |  | ✓ | `nls` |
 | nim | ✓ | ✓ | ✓ | `nimlangserver` |
 | nix | ✓ | ✓ |  | `nil`, `nixd` |
@@ -146,7 +150,7 @@
 | nunjucks | ✓ |  |  |  |
 | ocaml | ✓ |  | ✓ | `ocamllsp` |
 | ocaml-interface | ✓ |  |  | `ocamllsp` |
-| odin | ✓ |  | ✓ | `ols` |
+| odin | ✓ | ✓ | ✓ | `ols` |
 | ohm | ✓ | ✓ | ✓ |  |
 | opencl | ✓ | ✓ | ✓ | `clangd` |
 | openscad | ✓ |  |  | `openscad-lsp` |
@@ -208,14 +212,14 @@
 | tact | ✓ | ✓ | ✓ |  |
 | task | ✓ |  |  |  |
 | tcl | ✓ |  | ✓ |  |
-| teal | ✓ |  |  |  |
+| teal | ✓ |  |  | `teal-language-server` |
 | templ | ✓ |  |  | `templ` |
 | textproto | ✓ | ✓ | ✓ |  |
 | tfvars | ✓ |  | ✓ | `terraform-ls` |
 | thrift | ✓ |  |  |  |
 | todotxt | ✓ |  |  |  |
 | toml | ✓ | ✓ |  | `taplo` |
-| tsq | ✓ |  |  |  |
+| tsq | ✓ |  |  | `ts_query_ls` |
 | tsx | ✓ | ✓ | ✓ | `typescript-language-server` |
 | twig | ✓ |  |  |  |
 | typescript | ✓ | ✓ | ✓ | `typescript-language-server` |

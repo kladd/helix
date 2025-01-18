@@ -7,11 +7,13 @@ use helix_core::auto_pairs::AutoPairs;
 use helix_core::chars::char_is_word;
 use helix_core::doc_formatter::TextFormat;
 use helix_core::encoding::Encoding;
+use helix_core::snippets::{ActiveSnippet, SnippetRenderCtx};
 use helix_core::syntax::{Highlight, LanguageServerFeature};
 use helix_core::text_annotations::{InlineAnnotation, Overlay};
 use helix_lsp::util::lsp_pos_to_pos;
 use helix_stdx::faccess::{copy_metadata, readonly};
 use helix_vcs::{DiffHandle, DiffProviderRegistry};
+use once_cell::sync::OnceCell;
 use thiserror;
 
 use ::parking_lot::Mutex;
@@ -138,6 +140,7 @@ pub struct Document {
     text: Rope,
     selections: HashMap<ViewId, Selection>,
     view_data: HashMap<ViewId, ViewData>,
+    pub active_snippet: Option<ActiveSnippet>,
 
     /// Inlay hints annotations for the document, by view.
     ///
@@ -149,6 +152,7 @@ pub struct Document {
     pub inlay_hints_oudated: bool,
 
     path: Option<PathBuf>,
+    relative_path: OnceCell<Option<PathBuf>>,
     encoding: &'static encoding::Encoding,
     has_bom: bool,
 
@@ -298,6 +302,14 @@ impl fmt::Debug for DocumentInlayHintsId {
         f.debug_struct("DocumentInlayHintsId")
             .field("lines", &(self.first_line..self.last_line))
             .finish()
+    }
+}
+
+impl Editor {
+    pub(crate) fn clear_doc_relative_paths(&mut self) {
+        for doc in self.documents_mut() {
+            doc.relative_path.take();
+        }
     }
 }
 
@@ -658,7 +670,9 @@ impl Document {
 
         Self {
             id: DocumentId::default(),
+            active_snippet: None,
             path: None,
+            relative_path: OnceCell::new(),
             encoding,
             has_bom,
             text,
@@ -761,9 +775,20 @@ impl Document {
                 ))
             })
         {
+            log::debug!(
+                "formatting '{}' with command '{}', args {fmt_args:?}",
+                self.display_name(),
+                fmt_cmd.display(),
+            );
             use std::process::Stdio;
             let text = self.text().clone();
+
             let mut process = tokio::process::Command::new(&fmt_cmd);
+
+            if let Some(doc_dir) = self.path.as_ref().and_then(|path| path.parent()) {
+                process.current_dir(doc_dir);
+            }
+
             process
                 .args(fmt_args)
                 .stdin(Stdio::piped())
@@ -1172,6 +1197,10 @@ impl Document {
     pub fn set_path(&mut self, path: Option<&Path>) {
         let path = path.map(helix_stdx::path::canonicalize);
 
+        // `take` to remove any prior relative path that may have existed.
+        // This will get set in `relative_path()`.
+        self.relative_path.take();
+
         // if parent doesn't exist we still want to open the document
         // and error out when document is saved
         self.path = path;
@@ -1415,6 +1444,8 @@ impl Document {
             doc: self,
             view: view_id,
             old_text: &old_doc,
+            changes,
+            ghost_transaction: !emit_lsp_notification,
         });
 
         // if specified, the current selection should instead be replaced by transaction.selection
@@ -1865,16 +1896,19 @@ impl Document {
         self.view_data_mut(view_id).view_position = new_offset;
     }
 
-    pub fn relative_path(&self) -> Option<Cow<Path>> {
-        self.path
+    pub fn relative_path(&self) -> Option<&Path> {
+        self.relative_path
+            .get_or_init(|| {
+                self.path
+                    .as_ref()
+                    .map(|path| helix_stdx::path::get_relative_path(path).to_path_buf())
+            })
             .as_deref()
-            .map(helix_stdx::path::get_relative_path)
     }
 
-    pub fn display_name(&self) -> Cow<'static, str> {
+    pub fn display_name(&self) -> Cow<'_, str> {
         self.relative_path()
-            .map(|path| path.to_string_lossy().to_string().into())
-            .unwrap_or_else(|| SCRATCH_BUFFER_NAME.into())
+            .map_or_else(|| SCRATCH_BUFFER_NAME.into(), |path| path.to_string_lossy())
     }
 
     // transact(Fn) ?
@@ -2054,6 +2088,16 @@ impl Document {
         }
     }
 
+    pub fn snippet_ctx(&self) -> SnippetRenderCtx {
+        SnippetRenderCtx {
+            // TODO snippet variable resolution
+            resolve_var: Box::new(|_| None),
+            tab_width: self.tab_width(),
+            indent_style: self.indent_style,
+            line_ending: self.line_ending.as_str(),
+        }
+    }
+
     pub fn text_format(&self, mut viewport_width: u16, theme: Option<&Theme>) -> TextFormat {
         let config = self.config.load();
         let text_width = self
@@ -2157,7 +2201,6 @@ pub enum FormatterError {
     BrokenStdin,
     WaitForOutputFailed,
     InvalidUtf8Output,
-    DiskReloadError(String),
     NonZeroExitStatus(Option<String>),
 }
 
@@ -2172,7 +2215,6 @@ impl Display for FormatterError {
             Self::BrokenStdin => write!(f, "Could not write to formatter stdin"),
             Self::WaitForOutputFailed => write!(f, "Waiting for formatter output failed"),
             Self::InvalidUtf8Output => write!(f, "Invalid UTF-8 formatter output"),
-            Self::DiskReloadError(error) => write!(f, "Error reloading file from disk: {}", error),
             Self::NonZeroExitStatus(Some(output)) => write!(f, "Formatter error: {}", output),
             Self::NonZeroExitStatus(None) => {
                 write!(f, "Formatter exited with non zero exit status")
