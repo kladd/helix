@@ -186,6 +186,7 @@ where
         match context.editor.mode() {
             Mode::Insert => context.editor.theme.get("ui.statusline.insert"),
             Mode::Select => context.editor.theme.get("ui.statusline.select"),
+            Mode::SelectLine => context.editor.theme.get("ui.statusline.select-line"),
             Mode::Normal => context.editor.theme.get("ui.statusline.normal"),
         }
     } else {
