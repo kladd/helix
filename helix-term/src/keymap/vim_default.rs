@@ -83,7 +83,13 @@ pub fn vim_default() -> HashMap<Mode, KeyTrie> {
         "=" => vim_op_autoindent,
 
         // Shortcuts
-        "x" => delete_char_forward,
+        "x" => vim_delete_char_forward,
+        "X" => vim_delete_char_backward,
+        "D" => vim_delete_to_line_end,
+        "C" => vim_change_to_line_end,
+        "Y" => vim_yank_line,
+        "s" => vim_substitute_char,
+        "S" => vim_substitute_line,
         "p" => paste_after,
         "P" => paste_before,
         "J" => join_selections,
