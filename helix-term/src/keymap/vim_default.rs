@@ -1,0 +1,225 @@
+use std::collections::HashMap;
+
+use super::macros::keymap;
+use super::{KeyTrie, Mode};
+use helix_core::hashmap;
+
+pub fn vim_default() -> HashMap<Mode, KeyTrie> {
+    let normal = keymap!({ "Normal mode"
+        "h" | "left" => move_char_left,
+        "j" | "down" => move_visual_line_down,
+        "k" | "up" => move_visual_line_up,
+        "l" | "right" => move_char_right,
+
+        "w" => move_next_word_start,
+        "W" => move_next_long_word_start,
+        "b" => move_prev_word_start,
+        "B" => move_prev_long_word_start,
+        "e" => move_next_word_end,
+        "E" => move_next_long_word_end,
+
+        "0" => goto_line_start,
+        "^" => goto_first_nonwhitespace,
+        "$" => goto_line_end,
+
+        "g" => { "Goto"
+            "g" => goto_file_start,
+            "e" => move_prev_word_end,
+            "E" => move_prev_long_word_end,
+            "h" => goto_line_start,
+            "l" => goto_line_end,
+            "s" => goto_first_nonwhitespace,
+            "d" => goto_definition,
+            "D" => goto_declaration,
+            "y" => goto_type_definition,
+            "r" => goto_reference,
+            "i" => goto_implementation,
+            "t" => goto_window_top,
+            "c" => goto_window_center,
+            "b" => goto_window_bottom,
+        },
+        "G" => goto_last_line,
+
+        "H" => goto_window_top,
+        "M" => goto_window_center,
+        "L" => goto_window_bottom,
+
+        "i" => insert_mode,
+        "I" => insert_at_line_start,
+        "a" => append_mode,
+        "A" => insert_at_line_end,
+        "o" => open_below,
+        "O" => open_above,
+
+        "v" => vim_visual_mode,
+        "V" => vim_visual_line_mode,
+        "C-v" => vim_visual_block_mode,
+        "R" => vim_replace_mode,
+
+        ":" => command_mode,
+
+        "u" => undo,
+        "U" => redo,
+
+        "/" => search,
+        "?" => rsearch,
+        "n" => search_next,
+        "N" => search_prev,
+
+        "f" => find_next_char,
+        "F" => find_prev_char,
+        "t" => find_till_char,
+        "T" => till_prev_char,
+
+        "%" => match_brackets,
+
+        "x" => delete_char_forward,
+        "p" => paste_after,
+        "P" => paste_before,
+
+        "~" => switch_case,
+
+        "C-u" => half_page_up,
+        "C-d" => half_page_down,
+        "C-b" => page_up,
+        "C-f" => page_down,
+
+        "z" => { "View"
+            "z" => align_view_center,
+            "t" => align_view_top,
+            "b" => align_view_bottom,
+        },
+    });
+
+    let insert = keymap!({ "Insert mode"
+        "esc" => normal_mode,
+        "C-[" => normal_mode,
+        "backspace" => delete_char_backward,
+        "del" => delete_char_forward,
+        "ret" => insert_newline,
+        "tab" => insert_tab,
+        "C-w" => delete_word_backward,
+        "C-u" => kill_to_line_start,
+        "left" => move_char_left,
+        "right" => move_char_right,
+        "up" => move_visual_line_up,
+        "down" => move_visual_line_down,
+        "home" => goto_line_start,
+        "end" => goto_line_end_newline,
+        "pageup" => page_up,
+        "pagedown" => page_down,
+    });
+
+    // Visual mode: motions extend selection, operators act on selection
+    let visual = keymap!({ "Visual mode"
+        "esc" => normal_mode,
+        "C-[" => normal_mode,
+
+        "h" | "left" => extend_char_left,
+        "j" | "down" => extend_line_down,
+        "k" | "up" => extend_line_up,
+        "l" | "right" => extend_char_right,
+
+        "w" => extend_next_word_start,
+        "W" => extend_next_long_word_start,
+        "b" => extend_prev_word_start,
+        "B" => extend_prev_long_word_start,
+        "e" => extend_next_word_end,
+        "E" => extend_next_long_word_end,
+
+        "0" => goto_line_start,
+        "^" => goto_first_nonwhitespace,
+        "$" => goto_line_end,
+
+        "G" => goto_last_line,
+        "g" => { "Goto"
+            "g" => goto_file_start,
+            "e" => extend_prev_word_end,
+            "E" => extend_prev_long_word_end,
+        },
+
+        "H" => goto_window_top,
+        "M" => goto_window_center,
+        "L" => goto_window_bottom,
+
+        "d" | "x" => delete_selection,
+        "c" | "s" => change_selection,
+        "y" => yank,
+
+        ">" => indent,
+        "<" => unindent,
+
+        "~" => switch_case,
+
+        ":" => command_mode,
+
+        "f" => find_next_char,
+        "F" => find_prev_char,
+        "t" => find_till_char,
+        "T" => till_prev_char,
+
+        "%" => match_brackets,
+
+        "/" => search,
+        "?" => rsearch,
+        "n" => search_next,
+        "N" => search_prev,
+
+        "o" => flip_selections,
+    });
+
+    // Visual-line: reuses visual bindings, operations are linewise
+    let visual_line = keymap!({ "Visual-Line mode"
+        "esc" => normal_mode,
+        "C-[" => normal_mode,
+
+        "j" | "down" => extend_line_down,
+        "k" | "up" => extend_line_up,
+
+        "d" | "x" => delete_selection,
+        "c" | "s" => change_selection,
+        "y" => yank,
+
+        ">" => indent,
+        "<" => unindent,
+
+        ":" => command_mode,
+
+        "o" => flip_selections,
+    });
+
+    // Visual-block: stub for now
+    let visual_block = keymap!({ "Visual-Block mode"
+        "esc" => normal_mode,
+        "C-[" => normal_mode,
+
+        "h" | "left" => extend_char_left,
+        "j" | "down" => extend_line_down,
+        "k" | "up" => extend_line_up,
+        "l" | "right" => extend_char_right,
+
+        "d" | "x" => delete_selection,
+        "c" | "s" => change_selection,
+        "y" => yank,
+
+        ":" => command_mode,
+
+        "o" => flip_selections,
+    });
+
+    // Replace mode: stub for now
+    let replace = keymap!({ "Replace mode"
+        "esc" => normal_mode,
+        "C-[" => normal_mode,
+    });
+
+    hashmap!(
+        Mode::Normal => normal.clone(),
+        Mode::Insert => insert,
+        Mode::Select => normal, // unused in vim mode
+        Mode::Visual => visual,
+        Mode::VisualLine => visual_line,
+        Mode::VisualBlock => visual_block,
+        Mode::Replace => replace,
+    )
+}
