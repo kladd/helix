@@ -103,6 +103,31 @@ pub fn vim_default() -> HashMap<Mode, KeyTrie> {
 
         "C-o" => jump_backward,
 
+        "C-w" => { "Window"
+            "C-w" | "w" => rotate_view,
+            "C-s" | "s" => hsplit,
+            "C-v" | "v" => vsplit,
+            "C-t" | "t" => transpose_view,
+            "f" => goto_file_hsplit,
+            "F" => goto_file_vsplit,
+            "C-q" | "q" => wclose,
+            "C-o" | "o" => wonly,
+            "C-h" | "h" | "left" => jump_view_left,
+            "C-j" | "j" | "down" => jump_view_down,
+            "C-k" | "k" | "up" => jump_view_up,
+            "C-l" | "l" | "right" => jump_view_right,
+            "H" => swap_view_left,
+            "J" => swap_view_down,
+            "K" => swap_view_up,
+            "L" => swap_view_right,
+            "n" => { "New split scratch buffer"
+                "C-s" | "s" => hsplit_new,
+                "C-v" | "v" => vsplit_new,
+            },
+            "x" => wclose,
+            "=" => wclose, // TODO: equalize sizes when available
+        },
+
         "z" => { "View"
             "z" => align_view_center,
             "t" => align_view_top,
