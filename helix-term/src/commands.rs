@@ -431,6 +431,8 @@ impl MappableCommand {
         vim_visual_line_mode, "Enter vim visual-line mode",
         vim_visual_block_mode, "Enter vim visual-block mode",
         vim_replace_mode, "Enter vim replace mode",
+        vim_visual_line_up, "Move cursor up in visual-line mode",
+        vim_visual_line_down, "Move cursor down in visual-line mode",
         goto_definition, "Goto definition",
         goto_declaration, "Goto declaration",
         add_newline_above, "Add newline above",
@@ -4089,8 +4091,11 @@ fn select_mode(cx: &mut Context) {
 }
 
 fn exit_select_mode(cx: &mut Context) {
-    if cx.editor.mode == Mode::Select {
-        cx.editor.mode = Mode::Normal;
+    match cx.editor.mode {
+        Mode::Select | Mode::Visual | Mode::VisualLine | Mode::VisualBlock => {
+            cx.editor.mode = Mode::Normal;
+        }
+        _ => {}
     }
 }
 
@@ -4120,6 +4125,44 @@ fn vim_visual_mode(cx: &mut Context) {
     }
 }
 
+/// Expand a range to cover full lines, preserving anchor/head direction.
+///
+/// Uses `line_range()` (which uses `from()`/`to()` with grapheme adjustment)
+/// to determine the actual lines covered, then reconstructs direction from
+/// the head/anchor relationship. The anchor is placed at the boundary of
+/// its own line so that `cursor_line()` can correctly determine the head line
+/// on subsequent calls.
+fn visual_line_expand(text: RopeSlice, range: Range) -> Range {
+    let cursor_line = range.cursor_line(text);
+    // Use line_range to get the anchor line correctly even for backward
+    // ranges where anchor sits at start of next line.
+    let (first_line, last_line) = range.line_range(text);
+    let anchor_line = if cursor_line == first_line {
+        last_line
+    } else {
+        first_line
+    };
+
+    let (sel_first, sel_last) = if anchor_line <= cursor_line {
+        (anchor_line, cursor_line)
+    } else {
+        (cursor_line, anchor_line)
+    };
+
+    let start = text.line_to_char(sel_first);
+    let end = if sel_last + 1 < text.len_lines() {
+        text.line_to_char(sel_last + 1)
+    } else {
+        text.len_chars()
+    };
+
+    if anchor_line <= cursor_line {
+        Range::new(start, end)
+    } else {
+        Range::new(end, start)
+    }
+}
+
 fn vim_visual_line_mode(cx: &mut Context) {
     match cx.editor.mode {
         Mode::VisualLine => {
@@ -4128,26 +4171,68 @@ fn vim_visual_line_mode(cx: &mut Context) {
         _ => {
             let (view, doc) = current!(cx.editor);
             let text = doc.text().slice(..);
-            // Extend selection to full lines
-            let selection = doc.selection(view.id).clone().transform(|range| {
-                let start_line = text.char_to_line(range.from());
-                let end_line = text.char_to_line(range.to());
-                let start = text.line_to_char(start_line);
-                let end = if end_line + 1 < text.len_lines() {
-                    text.line_to_char(end_line + 1)
-                } else {
-                    text.len_chars()
-                };
-                if range.head >= range.anchor {
-                    Range::new(start, end)
-                } else {
-                    Range::new(end, start)
-                }
-            });
+            let selection = doc
+                .selection(view.id)
+                .clone()
+                .transform(|range| visual_line_expand(text, range));
             doc.set_selection(view.id, selection);
             cx.editor.mode = Mode::VisualLine;
         }
     }
+}
+
+/// Move cursor up/down in visual-line mode by computing anchor and cursor
+/// lines from the current range, moving the cursor line, and re-expanding.
+fn vim_visual_line_move(cx: &mut Context, dir: Direction) {
+    let count = cx.count();
+    let (view, doc) = current!(cx.editor);
+    let text = doc.text().slice(..);
+
+    let selection = doc.selection(view.id).clone().transform(|range| {
+        let cursor_line = range.cursor_line(text);
+        let (first_line, last_line) = range.line_range(text);
+        let anchor_line = if cursor_line == first_line {
+            last_line
+        } else {
+            first_line
+        };
+
+        let new_cursor_line = match dir {
+            Direction::Backward => cursor_line.saturating_sub(count),
+            Direction::Forward => {
+                let max_line = text.len_lines().saturating_sub(1);
+                (cursor_line + count).min(max_line)
+            }
+        };
+
+        let (sel_first, sel_last) = if anchor_line <= new_cursor_line {
+            (anchor_line, new_cursor_line)
+        } else {
+            (new_cursor_line, anchor_line)
+        };
+
+        let start = text.line_to_char(sel_first);
+        let end = if sel_last + 1 < text.len_lines() {
+            text.line_to_char(sel_last + 1)
+        } else {
+            text.len_chars()
+        };
+
+        if anchor_line <= new_cursor_line {
+            Range::new(start, end)
+        } else {
+            Range::new(end, start)
+        }
+    });
+    doc.set_selection(view.id, selection);
+}
+
+fn vim_visual_line_up(cx: &mut Context) {
+    vim_visual_line_move(cx, Direction::Backward);
+}
+
+fn vim_visual_line_down(cx: &mut Context) {
+    vim_visual_line_move(cx, Direction::Forward);
 }
 
 fn vim_visual_block_mode(cx: &mut Context) {
