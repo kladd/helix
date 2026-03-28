@@ -96,6 +96,7 @@ pub fn vim_default() -> HashMap<Mode, KeyTrie> {
         "p" => paste_after,
         "P" => paste_before,
         "J" => join_selections,
+        "r" => replace,
 
         "~" => switch_case,
 
