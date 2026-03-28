@@ -1,3 +1,4 @@
+pub mod common;
 pub mod default;
 pub mod macros;
 pub mod vim_default;

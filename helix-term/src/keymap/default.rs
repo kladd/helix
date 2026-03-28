@@ -1,11 +1,12 @@
 use std::collections::HashMap;
 
+use super::common::space_keymap;
 use super::macros::keymap;
 use super::{KeyTrie, Mode};
 use helix_core::hashmap;
 
 pub fn default() -> HashMap<Mode, KeyTrie> {
-    let normal = keymap!({ "Normal mode"
+    let mut normal = keymap!({ "Normal mode"
         "h" | "left" => move_char_left,
         "j" | "down" => move_visual_line_down,
         "k" | "up" => move_visual_line_up,
@@ -222,77 +223,6 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
         "C-o" => jump_backward,
         "C-s" => save_selection,
 
-        "space" => { "Space"
-            "f" => file_picker,
-            "F" => file_picker_in_current_directory,
-            "e" => file_explorer,
-            "." => file_explorer_in_current_buffer_directory,
-            "b" => buffer_picker,
-            "j" => jumplist_picker,
-            "s" => lsp_or_syntax_symbol_picker,
-            "S" => lsp_or_syntax_workspace_symbol_picker,
-            "d" => diagnostics_picker,
-            "D" => workspace_diagnostics_picker,
-            "g" => changed_file_picker,
-            "a" => code_action,
-            "'" => last_picker,
-            "G" => { "Debug (experimental)" sticky=true
-                "l" => dap_launch,
-                "r" => dap_restart,
-                "b" => dap_toggle_breakpoint,
-                "c" => dap_continue,
-                "h" => dap_pause,
-                "i" => dap_step_in,
-                "o" => dap_step_out,
-                "n" => dap_next,
-                "v" => dap_variables,
-                "t" => dap_terminate,
-                "C-c" => dap_edit_condition,
-                "C-l" => dap_edit_log,
-                "s" => { "Switch"
-                    "t" => dap_switch_thread,
-                    "f" => dap_switch_stack_frame,
-                    // sl, sb
-                },
-                "e" => dap_enable_exceptions,
-                "E" => dap_disable_exceptions,
-            },
-            "w" => { "Window"
-                "C-w" | "w" => rotate_view,
-                "C-s" | "s" => hsplit,
-                "C-v" | "v" => vsplit,
-                "C-t" | "t" => transpose_view,
-                "f" => goto_file_hsplit,
-                "F" => goto_file_vsplit,
-                "C-q" | "q" => wclose,
-                "C-o" | "o" => wonly,
-                "C-h" | "h" | "left" => jump_view_left,
-                "C-j" | "j" | "down" => jump_view_down,
-                "C-k" | "k" | "up" => jump_view_up,
-                "C-l" | "l" | "right" => jump_view_right,
-                "H" => swap_view_left,
-                "J" => swap_view_down,
-                "K" => swap_view_up,
-                "L" => swap_view_right,
-                "n" => { "New split scratch buffer"
-                    "C-s" | "s" => hsplit_new,
-                    "C-v" | "v" => vsplit_new,
-                },
-            },
-            "y" => yank_to_clipboard,
-            "Y" => yank_main_selection_to_clipboard,
-            "p" => paste_clipboard_after,
-            "P" => paste_clipboard_before,
-            "R" => replace_selections_with_clipboard,
-            "/" => global_search,
-            "k" => hover,
-            "r" => rename_symbol,
-            "h" => select_references_to_symbol_under_cursor,
-            "c" => toggle_comments,
-            "C" => toggle_block_comments,
-            "A-c" => toggle_line_comments,
-            "?" => command_palette,
-        },
         "z" => { "View"
             "z" | "c" => align_view_center,
             "t" => align_view_top,
@@ -339,6 +269,11 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
         "C-a" => increment,
         "C-x" => decrement,
     });
+
+    // Add the shared Space keymap to normal mode
+    let space_key = "space".parse::<helix_view::input::KeyEvent>().unwrap();
+    normal.node_mut().unwrap().insert(space_key, space_keymap());
+
     let mut select = normal.clone();
     select.merge_nodes(keymap!({ "Select mode"
         "h" | "left" => extend_char_left,
