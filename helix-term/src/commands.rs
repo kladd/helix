@@ -442,6 +442,13 @@ impl MappableCommand {
         vim_op_uppercase, "Vim uppercase operator",
         vim_op_lowercase, "Vim lowercase operator",
         vim_op_toggle_case, "Vim toggle case operator",
+        vim_delete_char_forward, "Vim x: delete char under cursor",
+        vim_delete_char_backward, "Vim X: delete char before cursor",
+        vim_delete_to_line_end, "Vim D: delete to end of line",
+        vim_change_to_line_end, "Vim C: change to end of line",
+        vim_yank_line, "Vim Y: yank current line",
+        vim_substitute_char, "Vim s: substitute char",
+        vim_substitute_line, "Vim S: substitute line",
         goto_definition, "Goto definition",
         goto_declaration, "Goto declaration",
         add_newline_above, "Add newline above",
@@ -4303,6 +4310,98 @@ fn vim_op_lowercase(cx: &mut Context) {
 }
 fn vim_op_toggle_case(cx: &mut Context) {
     vim_enter_operator_pending(cx, VimOperator::ToggleCase);
+}
+
+/// Vim `x`: delete char(s) under cursor (like `dl`).
+fn vim_delete_char_forward(cx: &mut Context) {
+    let count = cx.count();
+    let (view, doc) = current!(cx.editor);
+    let text = doc.text().slice(..);
+    let selection = doc.selection(view.id).clone().transform(|range| {
+        let pos = range.cursor(text);
+        let end = graphemes::nth_next_grapheme_boundary(text, pos, count);
+        Range::new(pos, end)
+    });
+    doc.set_selection(view.id, selection);
+    crate::vim::apply_operator(cx, VimOperator::Delete);
+}
+
+/// Vim `X`: delete char(s) before cursor (like `dh`).
+fn vim_delete_char_backward(cx: &mut Context) {
+    let count = cx.count();
+    let (view, doc) = current!(cx.editor);
+    let text = doc.text().slice(..);
+    let selection = doc.selection(view.id).clone().transform(|range| {
+        let pos = range.cursor(text);
+        let start = graphemes::nth_prev_grapheme_boundary(text, pos, count);
+        Range::new(start, pos)
+    });
+    doc.set_selection(view.id, selection);
+    crate::vim::apply_operator(cx, VimOperator::Delete);
+}
+
+/// Vim `D`: delete from cursor to end of line (like `d$`).
+fn vim_delete_to_line_end(cx: &mut Context) {
+    let (view, doc) = current!(cx.editor);
+    let text = doc.text().slice(..);
+    let selection = doc.selection(view.id).clone().transform(|range| {
+        let pos = range.cursor(text);
+        let line = range.cursor_line(text);
+        let line_end = line_end_char_index(&text, line);
+        Range::new(pos, line_end)
+    });
+    doc.set_selection(view.id, selection);
+    crate::vim::apply_operator(cx, VimOperator::Delete);
+}
+
+/// Vim `C`: change from cursor to end of line (like `c$`).
+fn vim_change_to_line_end(cx: &mut Context) {
+    let (view, doc) = current!(cx.editor);
+    let text = doc.text().slice(..);
+    let selection = doc.selection(view.id).clone().transform(|range| {
+        let pos = range.cursor(text);
+        let line = range.cursor_line(text);
+        let line_end = line_end_char_index(&text, line);
+        Range::new(pos, line_end)
+    });
+    doc.set_selection(view.id, selection);
+    crate::vim::apply_operator(cx, VimOperator::Change);
+}
+
+/// Vim `Y`: yank current line (like `yy`).
+fn vim_yank_line(cx: &mut Context) {
+    let count = cx.count();
+    let (view, doc) = current!(cx.editor);
+    let text = doc.text().slice(..);
+    let cursor_pos = doc.selection(view.id).primary().cursor(text);
+    let (start, end) = crate::vim::linewise_range(text, cursor_pos, count);
+    doc.set_selection(view.id, Selection::single(start, end));
+    crate::vim::apply_operator(cx, VimOperator::Yank);
+}
+
+/// Vim `s`: substitute char(s) under cursor (like `cl`).
+fn vim_substitute_char(cx: &mut Context) {
+    let count = cx.count();
+    let (view, doc) = current!(cx.editor);
+    let text = doc.text().slice(..);
+    let selection = doc.selection(view.id).clone().transform(|range| {
+        let pos = range.cursor(text);
+        let end = graphemes::nth_next_grapheme_boundary(text, pos, count);
+        Range::new(pos, end)
+    });
+    doc.set_selection(view.id, selection);
+    crate::vim::apply_operator(cx, VimOperator::Change);
+}
+
+/// Vim `S`: substitute line (like `cc`).
+fn vim_substitute_line(cx: &mut Context) {
+    let count = cx.count();
+    let (view, doc) = current!(cx.editor);
+    let text = doc.text().slice(..);
+    let cursor_pos = doc.selection(view.id).primary().cursor(text);
+    let (start, end) = crate::vim::linewise_range(text, cursor_pos, count);
+    doc.set_selection(view.id, Selection::single(start, end));
+    crate::vim::apply_operator(cx, VimOperator::Change);
 }
 
 fn goto_first_diag(cx: &mut Context) {
