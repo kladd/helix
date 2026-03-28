@@ -74,6 +74,8 @@ pub fn vim_default() -> HashMap<Mode, KeyTrie> {
         "T" => till_prev_char,
 
         "%" => match_brackets,
+        "*" => search_selection_detect_word_boundaries,
+        "#" => search_selection_detect_word_boundaries,
 
         // Operators (enter operator-pending state)
         "d" => vim_op_delete,
