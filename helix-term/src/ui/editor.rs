@@ -4,13 +4,14 @@ use crate::{
     events::{OnModeSwitch, PostCommand},
     handlers::completion::CompletionItem,
     key,
-    keymap::{KeymapResult, Keymaps},
+    keymap::{KeyTrie, KeymapResult, Keymaps},
     ui::{
         document::{render_document, LinePos, TextRenderer},
         statusline,
         text_decorations::{self, Decoration, DecorationManager, InlineDiagnostics},
         Completion, ProgressSpinners,
     },
+    vim::{self, MotionKind},
 };
 
 use helix_core::{
@@ -44,6 +45,10 @@ pub struct EditorView {
     spinners: ProgressSpinners,
     /// Tracks if the terminal window is focused by reaction to terminal focus events
     terminal_focused: bool,
+    /// Motion trie for vim operator-pending mode. None when vim mode is off.
+    vim_motion_trie: Option<KeyTrie>,
+    /// Pending keys for multi-key motion lookups (e.g., `gg` in `dgg`).
+    vim_motion_pending: Vec<KeyEvent>,
 }
 
 #[derive(Debug, Clone)]
@@ -67,7 +72,14 @@ impl EditorView {
             completion: None,
             spinners: ProgressSpinners::default(),
             terminal_focused: true,
+            vim_motion_trie: None,
+            vim_motion_pending: Vec::new(),
         }
+    }
+
+    /// Initialize the vim motion trie. Called when vim mode is active.
+    pub fn set_vim_motion_trie(&mut self, trie: KeyTrie) {
+        self.vim_motion_trie = Some(trie);
     }
 
     pub fn spinners_mut(&mut self) -> &mut ProgressSpinners {
@@ -1010,6 +1022,17 @@ impl EditorView {
     }
 
     fn command_mode(&mut self, mode: Mode, cxt: &mut commands::Context, event: KeyEvent) {
+        // Check for vim operator-pending state before normal dispatch.
+        if cxt
+            .editor
+            .vim_state
+            .as_ref()
+            .is_some_and(|v| v.is_pending())
+        {
+            self.vim_operator_pending(cxt, event);
+            return;
+        }
+
         match (event, cxt.editor.count) {
             // If the count is already started and the input is a number, always continue the count.
             (key!(i @ '0'..='9'), Some(count)) => {
@@ -1087,7 +1110,19 @@ impl EditorView {
                 if matches!(&res, Some(KeymapResult::NotFound)) {
                     self.on_next_key(OnKeyCallbackKind::Fallback, cxt, event);
                 }
-                if self.keymaps.pending().is_empty() {
+
+                // After the command executes, check if we just entered
+                // operator-pending (the command set vim_state.pending_operator).
+                // If so, the count was already captured as pre_count — clear it
+                // from the editor so the motion doesn't double-count.
+                if cxt
+                    .editor
+                    .vim_state
+                    .as_ref()
+                    .is_some_and(|v| v.is_pending())
+                {
+                    cxt.editor.count = None;
+                } else if self.keymaps.pending().is_empty() {
                     cxt.editor.count = None
                 } else {
                     cxt.editor.selected_register = cxt.register.take();
@@ -1096,6 +1131,204 @@ impl EditorView {
         }
     }
 
+    /// Handle a keypress while in vim operator-pending mode.
+    /// The flow: operator was set by a previous keypress (d, c, y, etc.).
+    /// Now we handle post-count digits, doubled operators, Esc cancel,
+    /// and motion lookup + execution.
+    fn vim_operator_pending(&mut self, cxt: &mut commands::Context, event: KeyEvent) {
+        let vim = cxt.editor.vim_state.as_ref().unwrap();
+        let operator = vim.pending_operator.unwrap();
+        let accumulating = vim.accumulating_post_count;
+
+        // 1. Esc cancels operator-pending
+        if event == key!(Esc) {
+            cxt.editor.vim_state.as_mut().unwrap().reset();
+            self.vim_motion_pending.clear();
+            return;
+        }
+
+        // 2. Post-count digit accumulation
+        if let Some(ch) = event.char() {
+            if ch.is_ascii_digit() {
+                let digit = ch.to_digit(10).unwrap() as usize;
+                // '0' only continues a count, never starts one (it's a motion)
+                if digit != 0 || accumulating {
+                    let vim = cxt.editor.vim_state.as_mut().unwrap();
+                    let current = vim.post_count.map_or(0, |n| n.get());
+                    let new_count = current * 10 + digit;
+                    if new_count <= 100_000_000 {
+                        vim.post_count = NonZeroUsize::new(new_count);
+                        vim.accumulating_post_count = true;
+                    }
+                    return;
+                }
+            }
+        }
+
+        // 3. Doubled operator (dd, cc, yy, >>, <<, ==)
+        if self.vim_motion_pending.is_empty() {
+            if let Some(ch) = event.char() {
+                if ch == operator.trigger_key() {
+                    self.vim_execute_doubled_operator(cxt);
+                    return;
+                }
+            }
+        }
+
+        // 4. Motion trie lookup
+        let motion_trie = match &self.vim_motion_trie {
+            Some(trie) => trie,
+            None => {
+                // No motion trie — shouldn't happen, cancel
+                cxt.editor.vim_state.as_mut().unwrap().reset();
+                return;
+            }
+        };
+
+        // Build key sequence for trie lookup
+        self.vim_motion_pending.push(event);
+        let search_result = motion_trie.search(&self.vim_motion_pending);
+
+        match search_result {
+            Some(KeyTrie::MappableCommand(ref cmd)) => {
+                // Found a motion command — execute it and apply operator
+                let cmd = cmd.clone();
+                self.vim_motion_pending.clear();
+                self.vim_execute_operator_with_motion(cxt, &cmd);
+            }
+            Some(KeyTrie::Sequence(ref cmds)) => {
+                // Command sequence
+                let cmds = cmds.clone();
+                self.vim_motion_pending.clear();
+                if let Some(cmd) = cmds.first() {
+                    self.vim_execute_operator_with_motion(cxt, cmd);
+                }
+            }
+            Some(KeyTrie::Node(_)) => {
+                // Partial match — wait for more keys (e.g., `g` in `dgg`)
+            }
+            None => {
+                // No match — cancel operator-pending
+                self.vim_motion_pending.clear();
+                cxt.editor.vim_state.as_mut().unwrap().reset();
+            }
+        }
+    }
+
+    /// Execute a doubled operator (dd, cc, yy, etc.) on count lines.
+    fn vim_execute_doubled_operator(&mut self, cxt: &mut commands::Context) {
+        let vim = cxt.editor.vim_state.as_ref().unwrap();
+        let operator = vim.pending_operator.unwrap();
+        let count = vim.effective_count();
+
+        let (view, doc) = current!(cxt.editor);
+        let text = doc.text().slice(..);
+        let primary = doc.selection(view.id).primary();
+        let cursor_pos = primary.cursor(text);
+
+        let (from, to) = vim::linewise_range(text, cursor_pos, count);
+
+        // Set selection to the line range
+        let selection = Selection::single(from, to);
+        doc.set_selection(view.id, selection);
+
+        // Execute the operator
+        vim::apply_operator(cxt, operator);
+
+        // Reset vim state
+        cxt.editor.vim_state.as_mut().unwrap().reset();
+        self.vim_motion_pending.clear();
+    }
+
+    /// Execute an operator using a motion command.
+    /// Saves cursor, runs the motion, computes range, applies operator.
+    fn vim_execute_operator_with_motion(
+        &mut self,
+        cxt: &mut commands::Context,
+        cmd: &commands::MappableCommand,
+    ) {
+        let vim = cxt.editor.vim_state.as_ref().unwrap();
+        let operator = vim.pending_operator.unwrap();
+        let effective_count = vim.effective_count();
+
+        // Save cursor position before the motion
+        let (view, doc) = current!(cxt.editor);
+        let text = doc.text().slice(..);
+        let before_pos = doc.selection(view.id).primary().cursor(text);
+
+        // Set count for the motion
+        cxt.count = NonZeroUsize::new(effective_count);
+
+        // Get the command name for motion kind lookup (before execute borrows cxt)
+        let cmd_name = match cmd {
+            commands::MappableCommand::Static { name, .. } => *name,
+            _ => "",
+        };
+        let kind = vim::motion_kind(cmd_name);
+
+        // Execute the motion command (this moves the cursor)
+        cmd.execute(cxt);
+
+        // Check if the motion set up an on_next_key callback (e.g., f/t/F/T
+        // which need a character argument). If so, wrap the callback to apply
+        // the operator after the motion completes.
+        if cxt.on_next_key_callback.is_some() {
+            let original_cb = cxt.on_next_key_callback.take().unwrap();
+            let (cb, cb_kind) = original_cb;
+            cxt.on_next_key_callback = Some((
+                Box::new(move |cx: &mut commands::Context, event: KeyEvent| {
+                    // Run the original motion callback (e.g., find_char moves cursor)
+                    cb(cx, event);
+                    // Now compute range and apply operator
+                    let (view, doc) = current!(cx.editor);
+                    let text = doc.text().slice(..);
+                    let after_pos = doc.selection(view.id).primary().cursor(text);
+
+                    if before_pos != after_pos || kind == MotionKind::Linewise {
+                        let (from, to) =
+                            vim::compute_operator_range(text, before_pos, after_pos, kind);
+                        let selection = Selection::single(from, to);
+                        doc.set_selection(view.id, selection);
+                        vim::apply_operator(cx, operator);
+                    }
+
+                    if let Some(ref mut vim) = cx.editor.vim_state {
+                        vim.reset();
+                    }
+                }),
+                cb_kind,
+            ));
+            return;
+        }
+
+        // Synchronous motion: read new cursor position and apply immediately
+        let (view, doc) = current!(cxt.editor);
+        let text = doc.text().slice(..);
+        let after_pos = doc.selection(view.id).primary().cursor(text);
+
+        // If cursor didn't move, nothing to do
+        if before_pos == after_pos && kind != MotionKind::Linewise {
+            cxt.editor.vim_state.as_mut().unwrap().reset();
+            return;
+        }
+
+        // Compute the range the operator acts on
+        let (from, to) = vim::compute_operator_range(text, before_pos, after_pos, kind);
+
+        // Set selection to the operator range
+        let selection = Selection::single(from, to);
+        doc.set_selection(view.id, selection);
+
+        // Apply the operator
+        vim::apply_operator(cxt, operator);
+
+        // Reset vim state
+        if let Some(ref mut vim) = cxt.editor.vim_state {
+            vim.reset();
+        }
+    }
+
+    /// Apply a vim operator to the current selection.
     #[allow(clippy::too_many_arguments)]
     pub fn set_completion(
         &mut self,

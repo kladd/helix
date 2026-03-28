@@ -46,7 +46,7 @@ use helix_core::{
 };
 use helix_view::{
     document::{FormatterError, Mode, SCRATCH_BUFFER_NAME},
-    editor::{Action, Motion},
+    editor::{Action, Motion, VimOperator},
     expansion,
     info::Info,
     input::KeyEvent,
@@ -433,6 +433,15 @@ impl MappableCommand {
         vim_replace_mode, "Enter vim replace mode",
         vim_visual_line_up, "Move cursor up in visual-line mode",
         vim_visual_line_down, "Move cursor down in visual-line mode",
+        vim_op_delete, "Vim delete operator",
+        vim_op_change, "Vim change operator",
+        vim_op_yank, "Vim yank operator",
+        vim_op_indent, "Vim indent operator",
+        vim_op_outdent, "Vim outdent operator",
+        vim_op_autoindent, "Vim auto-indent operator",
+        vim_op_uppercase, "Vim uppercase operator",
+        vim_op_lowercase, "Vim lowercase operator",
+        vim_op_toggle_case, "Vim toggle case operator",
         goto_definition, "Goto definition",
         goto_declaration, "Goto declaration",
         add_newline_above, "Add newline above",
@@ -4252,6 +4261,48 @@ fn vim_replace_mode(cx: &mut Context) {
     // Stub: enters replace mode. Full overwrite-on-type behavior
     // will be implemented in Phase 6.
     cx.editor.mode = Mode::Replace;
+}
+
+/// Helper: enter operator-pending state for the given operator.
+fn vim_enter_operator_pending(cx: &mut Context, op: VimOperator) {
+    if let Some(ref mut vim) = cx.editor.vim_state {
+        // Transfer editor.count → pre_count, then clear editor.count
+        // so the motion gets post_count instead.
+        vim.pre_count = cx.count.take();
+        vim.pending_operator = Some(op);
+
+        // Save current selection so we can compute the motion range later.
+        let (view, doc) = current!(cx.editor);
+        vim.saved_selection = Some(doc.selection(view.id).clone());
+    }
+}
+
+fn vim_op_delete(cx: &mut Context) {
+    vim_enter_operator_pending(cx, VimOperator::Delete);
+}
+fn vim_op_change(cx: &mut Context) {
+    vim_enter_operator_pending(cx, VimOperator::Change);
+}
+fn vim_op_yank(cx: &mut Context) {
+    vim_enter_operator_pending(cx, VimOperator::Yank);
+}
+fn vim_op_indent(cx: &mut Context) {
+    vim_enter_operator_pending(cx, VimOperator::Indent);
+}
+fn vim_op_outdent(cx: &mut Context) {
+    vim_enter_operator_pending(cx, VimOperator::Outdent);
+}
+fn vim_op_autoindent(cx: &mut Context) {
+    vim_enter_operator_pending(cx, VimOperator::AutoIndent);
+}
+fn vim_op_uppercase(cx: &mut Context) {
+    vim_enter_operator_pending(cx, VimOperator::Uppercase);
+}
+fn vim_op_lowercase(cx: &mut Context) {
+    vim_enter_operator_pending(cx, VimOperator::Lowercase);
+}
+fn vim_op_toggle_case(cx: &mut Context) {
+    vim_enter_operator_pending(cx, VimOperator::ToggleCase);
 }
 
 fn goto_first_diag(cx: &mut Context) {
