@@ -133,38 +133,10 @@ pub fn vim_default() -> HashMap<Mode, KeyTrie> {
         "pagedown" => page_down,
     });
 
-    // Visual mode: motions extend selection, operators act on selection
-    let mut visual = keymap!({ "Visual mode"
+    // Shared visual mode bindings (operators, mode switching, search, etc.)
+    let visual_shared = keymap!({ "Visual shared"
         "esc" => normal_mode,
         "C-[" => normal_mode,
-
-        // Motions (extend selection)
-        "h" | "left" => extend_char_left,
-        "j" | "down" => extend_line_down,
-        "k" | "up" => extend_line_up,
-        "l" | "right" => extend_char_right,
-
-        "w" => extend_next_word_start,
-        "W" => extend_next_long_word_start,
-        "b" => extend_prev_word_start,
-        "B" => extend_prev_long_word_start,
-        "e" => extend_next_word_end,
-        "E" => extend_next_long_word_end,
-
-        "0" => goto_line_start,
-        "^" => goto_first_nonwhitespace,
-        "$" => goto_line_end,
-
-        "G" => goto_last_line,
-        "g" => { "Goto"
-            "g" => goto_file_start,
-            "e" => extend_prev_word_end,
-            "E" => extend_prev_long_word_end,
-        },
-
-        "H" => goto_window_top,
-        "M" => goto_window_center,
-        "L" => goto_window_bottom,
 
         // Operators on selection
         "d" | "x" => delete_selection,
@@ -204,88 +176,27 @@ pub fn vim_default() -> HashMap<Mode, KeyTrie> {
         "n" => search_next,
         "N" => search_prev,
 
-        // Selection manipulation
+        // Text objects
+        "i" => select_textobject_inner,
+        "a" => select_textobject_around,
+
         "o" => flip_selections,
 
-        // Scrolling
-        "C-u" => half_page_up,
-        "C-d" => half_page_down,
-        "C-b" => page_up,
-        "C-f" => page_down,
-    });
-    visual.node_mut().unwrap().insert(space_key, space_keymap());
-
-    // Visual-line: reuses visual bindings, operations are linewise
-    let mut visual_line = keymap!({ "Visual-Line mode"
-        "esc" => normal_mode,
-        "C-[" => normal_mode,
-
-        "j" | "down" => vim_visual_line_down,
-        "k" | "up" => vim_visual_line_up,
-
         "G" => goto_last_line,
-        "g" => { "Goto"
-            "g" => goto_file_start,
-        },
-
         "H" => goto_window_top,
         "M" => goto_window_center,
         "L" => goto_window_bottom,
 
-        // Operators on selection
-        "d" | "x" => delete_selection,
-        "c" | "s" => change_selection,
-        "y" => yank,
-
-        ">" => indent,
-        "<" => unindent,
-        "=" => format_selections,
-
-        "~" => switch_case,
-        "u" => switch_to_lowercase,
-        "U" => switch_to_uppercase,
-
-        "J" => join_selections,
-        "r" => replace,
-        "p" => paste_after,
-        "P" => paste_before,
-
-        // Mode switching
-        "v" => vim_visual_mode,
-        "V" => vim_visual_line_mode,
-        "C-v" => vim_visual_block_mode,
-
-        ":" => command_mode,
-
-        // Find / search
-        "f" => extend_next_char,
-        "F" => extend_prev_char,
-        "t" => extend_till_char,
-        "T" => extend_till_prev_char,
-
-        "/" => search,
-        "?" => rsearch,
-        "n" => search_next,
-        "N" => search_prev,
-
-        "o" => flip_selections,
-
         // Scrolling
         "C-u" => half_page_up,
         "C-d" => half_page_down,
         "C-b" => page_up,
         "C-f" => page_down,
     });
-    visual_line
-        .node_mut()
-        .unwrap()
-        .insert(space_key, space_keymap());
 
-    // Visual-block: rectangular selection across lines
-    let mut visual_block = keymap!({ "Visual-Block mode"
-        "esc" => normal_mode,
-        "C-[" => normal_mode,
-
+    // Visual mode: character-wise motions extend selection
+    let mut visual = visual_shared.clone();
+    visual.merge_nodes(keymap!({ "Visual mode"
         "h" | "left" => extend_char_left,
         "j" | "down" => extend_line_down,
         "k" | "up" => extend_line_up,
@@ -302,57 +213,54 @@ pub fn vim_default() -> HashMap<Mode, KeyTrie> {
         "^" => goto_first_nonwhitespace,
         "$" => goto_line_end,
 
-        "G" => goto_last_line,
         "g" => { "Goto"
             "g" => goto_file_start,
             "e" => extend_prev_word_end,
             "E" => extend_prev_long_word_end,
         },
+    }));
+    visual.node_mut().unwrap().insert(space_key, space_keymap());
 
-        // Operators on selection
-        "d" | "x" => delete_selection,
-        "c" | "s" => change_selection,
-        "y" => yank,
+    // Visual-line: line-wise motions
+    let mut visual_line = visual_shared.clone();
+    visual_line.merge_nodes(keymap!({ "Visual-Line mode"
+        "j" | "down" => vim_visual_line_down,
+        "k" | "up" => vim_visual_line_up,
 
-        ">" => indent,
-        "<" => unindent,
-        "=" => format_selections,
+        "g" => { "Goto"
+            "g" => goto_file_start,
+        },
+    }));
+    visual_line
+        .node_mut()
+        .unwrap()
+        .insert(space_key, space_keymap());
 
-        "~" => switch_case,
-        "u" => switch_to_lowercase,
-        "U" => switch_to_uppercase,
+    // Visual-block: character-wise motions (same as visual)
+    let mut visual_block = visual_shared;
+    visual_block.merge_nodes(keymap!({ "Visual-Block mode"
+        "h" | "left" => extend_char_left,
+        "j" | "down" => extend_line_down,
+        "k" | "up" => extend_line_up,
+        "l" | "right" => extend_char_right,
 
-        "J" => join_selections,
-        "r" => replace,
-        "p" => paste_after,
-        "P" => paste_before,
+        "w" => extend_next_word_start,
+        "W" => extend_next_long_word_start,
+        "b" => extend_prev_word_start,
+        "B" => extend_prev_long_word_start,
+        "e" => extend_next_word_end,
+        "E" => extend_next_long_word_end,
 
-        // Mode switching
-        "v" => vim_visual_mode,
-        "V" => vim_visual_line_mode,
-        "C-v" => vim_visual_block_mode,
+        "0" => goto_line_start,
+        "^" => goto_first_nonwhitespace,
+        "$" => goto_line_end,
 
-        ":" => command_mode,
-
-        // Find / search
-        "f" => extend_next_char,
-        "F" => extend_prev_char,
-        "t" => extend_till_char,
-        "T" => extend_till_prev_char,
-
-        "/" => search,
-        "?" => rsearch,
-        "n" => search_next,
-        "N" => search_prev,
-
-        "o" => flip_selections,
-
-        // Scrolling
-        "C-u" => half_page_up,
-        "C-d" => half_page_down,
-        "C-b" => page_up,
-        "C-f" => page_down,
-    });
+        "g" => { "Goto"
+            "g" => goto_file_start,
+            "e" => extend_prev_word_end,
+            "E" => extend_prev_long_word_end,
+        },
+    }));
     visual_block
         .node_mut()
         .unwrap()
