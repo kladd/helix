@@ -2871,6 +2871,254 @@ const BUFFER_CLOSE_OTHERS_SIGNATURE: Signature = Signature {
     ..Signature::DEFAULT
 };
 
+/// Parse a vim-style substitution string: `s/pattern/replacement/flags`
+/// The delimiter can be any non-alphanumeric character (typically `/`).
+/// Returns (pattern, replacement, global, case_insensitive).
+fn parse_substitute_args(input: &str) -> anyhow::Result<(String, String, bool, bool)> {
+    let input = input.trim();
+
+    // The input may start with the delimiter directly, or with "s" + delimiter
+    // (since the command name `s` is already stripped, we get just `/pat/rep/flags`)
+    let s = if input.is_empty() {
+        bail!("Usage: substitute /pattern/replacement/[flags]");
+    } else {
+        input
+    };
+
+    let mut chars = s.chars();
+    let delimiter = chars.next().unwrap();
+    if delimiter.is_alphanumeric() {
+        bail!("Delimiter must be a non-alphanumeric character, got '{delimiter}'");
+    }
+
+    let rest: String = chars.collect();
+    // Split by delimiter, respecting backslash escapes
+    let mut parts = Vec::new();
+    let mut current = String::new();
+    let mut escape = false;
+    for ch in rest.chars() {
+        if escape {
+            if ch != delimiter {
+                current.push('\\');
+            }
+            current.push(ch);
+            escape = false;
+        } else if ch == '\\' {
+            escape = true;
+        } else if ch == delimiter {
+            parts.push(std::mem::take(&mut current));
+        } else {
+            current.push(ch);
+        }
+    }
+    // Last part (flags) may not have trailing delimiter
+    if !current.is_empty() || parts.len() < 2 {
+        parts.push(current);
+    }
+
+    if parts.len() < 2 {
+        bail!("Usage: substitute /pattern/replacement/[flags]");
+    }
+
+    let pattern = parts[0].clone();
+    let replacement = parts[1].clone();
+    let flags_str = if parts.len() > 2 { &parts[2] } else { "" };
+
+    if pattern.is_empty() {
+        bail!("Pattern cannot be empty");
+    }
+
+    let mut global = false;
+    let mut case_insensitive = false;
+    for flag in flags_str.chars() {
+        match flag {
+            'g' => global = true,
+            'i' => case_insensitive = true,
+            _ => bail!("Unknown flag: '{flag}' (supported: g, i)"),
+        }
+    }
+
+    Ok((pattern, replacement, global, case_insensitive))
+}
+
+/// Build a replacement string from a template and a closure that resolves capture groups.
+/// Supports `$1`..`$9`, `$0` / `&` for whole match, `$$` for literal `$`,
+/// `\1`..`\9` for capture groups, `\n`, `\t`, `\\` for escapes.
+fn build_replacement(template: &str, get_group: &dyn Fn(usize) -> Option<String>) -> String {
+    let mut result = String::new();
+    let mut chars = template.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch == '$' {
+            match chars.peek() {
+                Some('$') => {
+                    result.push('$');
+                    chars.next();
+                }
+                Some(&d) if d.is_ascii_digit() => {
+                    let group = d.to_digit(10).unwrap() as usize;
+                    chars.next();
+                    if let Some(s) = get_group(group) {
+                        result.push_str(&s);
+                    }
+                }
+                _ => result.push('$'),
+            }
+        } else if ch == '&' {
+            if let Some(s) = get_group(0) {
+                result.push_str(&s);
+            }
+        } else if ch == '\\' {
+            match chars.peek() {
+                Some(&d) if d.is_ascii_digit() => {
+                    let group = d.to_digit(10).unwrap() as usize;
+                    chars.next();
+                    if let Some(s) = get_group(group) {
+                        result.push_str(&s);
+                    }
+                }
+                Some(&c) => {
+                    match c {
+                        'n' => result.push('\n'),
+                        't' => result.push('\t'),
+                        '\\' => result.push('\\'),
+                        _ => {
+                            result.push('\\');
+                            result.push(c);
+                        }
+                    }
+                    chars.next();
+                }
+                None => result.push('\\'),
+            }
+        } else {
+            result.push(ch);
+        }
+    }
+    result
+}
+
+fn substitute_impl(
+    cx: &mut compositor::Context,
+    args: Args,
+    event: PromptEvent,
+    whole_file: bool,
+) -> anyhow::Result<()> {
+    if event != PromptEvent::Validate {
+        return Ok(());
+    }
+
+    let input = args.join(" ");
+    let (pattern, replacement, global, case_insensitive) = parse_substitute_args(&input)?;
+
+    let pattern = if case_insensitive {
+        format!("(?i){pattern}")
+    } else {
+        pattern
+    };
+    let regex = rope::Regex::new(&pattern).map_err(|e| anyhow::anyhow!("Invalid regex: {e}"))?;
+
+    let scrolloff = cx.editor.config().scrolloff;
+    let (view, doc) = current!(cx.editor);
+    let text = doc.text().slice(..);
+
+    // Determine the byte ranges to search within
+    let search_ranges: Vec<(usize, usize)> = if whole_file {
+        vec![(0, text.len_bytes())]
+    } else {
+        doc.selection(view.id)
+            .iter()
+            .map(|range| {
+                let from = text.char_to_byte(range.from());
+                let to = text.char_to_byte(range.to());
+                (from, to)
+            })
+            .collect()
+    };
+
+    // Collect all (char_start, char_end, replacement) changes
+    let mut changes: Vec<(usize, usize, Option<Tendril>)> = Vec::new();
+
+    let has_captures =
+        replacement.contains('$') || replacement.contains('&') || replacement.contains('\\');
+
+    for (byte_start, byte_end) in &search_ranges {
+        if has_captures {
+            // Use captures for group references in replacement
+            let input = text.regex_input_at_bytes(*byte_start..*byte_end);
+            for cap in regex.captures_iter(input) {
+                let whole_match = cap.get_group(0).unwrap();
+                let match_start = whole_match.start;
+                let match_end = whole_match.end;
+
+                if match_start == match_end {
+                    continue;
+                }
+
+                let get_group = |group: usize| -> Option<String> {
+                    cap.get_group(group)
+                        .map(|m| text.byte_slice(m.range()).chunks().collect::<String>())
+                };
+                let rep = build_replacement(&replacement, &get_group);
+                let char_start = text.byte_to_char(match_start);
+                let char_end = text.byte_to_char(match_end);
+                changes.push((char_start, char_end, Some(rep.into())));
+
+                if !global {
+                    break;
+                }
+            }
+        } else {
+            // Simple literal replacement — use find_iter (faster)
+            for mat in regex.find_iter(text.regex_input_at_bytes(*byte_start..*byte_end)) {
+                let match_start = mat.start();
+                let match_end = mat.end();
+
+                if match_start == match_end {
+                    continue;
+                }
+
+                let char_start = text.byte_to_char(match_start);
+                let char_end = text.byte_to_char(match_end);
+                changes.push((char_start, char_end, Some(replacement.clone().into())));
+
+                if !global {
+                    break;
+                }
+            }
+        }
+    }
+
+    if changes.is_empty() {
+        cx.editor.set_status("No matches found");
+        return Ok(());
+    }
+
+    let count = changes.len();
+    let transaction = Transaction::change(doc.text(), changes.into_iter());
+    doc.apply(&transaction, view.id);
+    doc.append_changes_to_history(view);
+    view.ensure_cursor_in_view(doc, scrolloff);
+
+    cx.editor.set_status(format!(
+        "{count} substitution{}",
+        if count == 1 { "" } else { "s" }
+    ));
+
+    Ok(())
+}
+
+fn substitute(cx: &mut compositor::Context, args: Args, event: PromptEvent) -> anyhow::Result<()> {
+    substitute_impl(cx, args, event, false)
+}
+
+fn substitute_all(
+    cx: &mut compositor::Context,
+    args: Args,
+    event: PromptEvent,
+) -> anyhow::Result<()> {
+    substitute_impl(cx, args, event, true)
+}
+
 // TODO: SHELL_SIGNATURE should specify var args for arguments, so that just completers::filename can be used,
 // but Signature does not yet allow for var args.
 
@@ -3991,7 +4239,31 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
         fun: untrust_workspace,
         completer: CommandCompleter::none(),
         signature: Signature { positionals: (0, None), ..Signature::DEFAULT },
-    }
+    },
+    TypableCommand {
+        name: "substitute",
+        aliases: &["s"],
+        doc: "Substitute within selections: :s/pattern/replacement/[flags]. Flags: g (global), i (case-insensitive). Supports $1, \\1, & for capture groups.",
+        fun: substitute,
+        completer: CommandCompleter::none(),
+        signature: Signature {
+            positionals: (1, Some(1)),
+            raw_after: Some(0),
+            ..Signature::DEFAULT
+        },
+    },
+    TypableCommand {
+        name: "substitute-all",
+        aliases: &["%s"],
+        doc: "Substitute across entire file: :%s/pattern/replacement/[flags]. Flags: g (global), i (case-insensitive). Supports $1, \\1, & for capture groups.",
+        fun: substitute_all,
+        completer: CommandCompleter::none(),
+        signature: Signature {
+            positionals: (1, Some(1)),
+            raw_after: Some(0),
+            ..Signature::DEFAULT
+        },
+    },
 ];
 
 pub static TYPABLE_COMMAND_MAP: Lazy<HashMap<&'static str, &'static TypableCommand>> =
@@ -4005,11 +4277,58 @@ pub static TYPABLE_COMMAND_MAP: Lazy<HashMap<&'static str, &'static TypableComma
             .collect()
     });
 
+/// Strip a vim-style range prefix (e.g., `'<,'>`, `%`, `1,5`) from the input.
+/// Returns the input with the range removed. The range itself is currently
+/// ignored — commands operate on the existing selection which visual mode
+/// has already set.
+fn strip_ex_range(input: &str) -> &str {
+    let s = input.trim_start();
+    // Note: `%` as a range is not stripped here because `%s` is a command
+    // alias for substitute-all. A standalone `%` range before other commands
+    // can be added later with proper range parsing.
+    // '< ,' '> prefix (visual selection range)
+    if s.starts_with("'<,'>") {
+        return &s[5..];
+    }
+    // Numeric ranges: `1,5`, `.,$`, `.+3,$-1`, etc.
+    // Scan past characters that are part of a range spec
+    let mut i = 0;
+    let bytes = s.as_bytes();
+    let mut has_range_char = false;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'0'..=b'9' | b'.' | b'$' | b',' | b'+' | b'-' | b' ' => {
+                has_range_char = true;
+                i += 1;
+            }
+            b'\'' => {
+                // Mark reference like 'a — skip the quote and the mark char
+                has_range_char = true;
+                i += 1;
+                if i < bytes.len() {
+                    i += 1;
+                }
+            }
+            _ => break,
+        }
+    }
+    if has_range_char && i > 0 {
+        return &s[i..];
+    }
+    input
+}
+
 fn execute_command_line(
     cx: &mut compositor::Context,
     input: &str,
     event: PromptEvent,
 ) -> anyhow::Result<()> {
+    // Strip vim-style range prefix when in vim mode
+    let input = if cx.editor.config().vim_mode {
+        strip_ex_range(input)
+    } else {
+        input
+    };
     let (command, rest, _) = command_line::split(input);
     if command.is_empty() {
         return Ok(());
@@ -4023,8 +4342,39 @@ fn execute_command_line(
 
     match typed::TYPABLE_COMMAND_MAP.get(command) {
         Some(cmd) => execute_command(cx, cmd, rest, event),
-        None if event == PromptEvent::Validate => Err(anyhow!("no such command: '{command}'")),
-        None => Ok(()),
+        None => {
+            // Command not found — try prefix matching to handle cases like
+            // `s/foo/bar/g` where the command `s` is directly followed by args
+            // with no space. Reconstruct full input and find the longest
+            // matching command name prefix.
+            let full = if rest.is_empty() {
+                command.to_string()
+            } else {
+                format!("{command} {rest}")
+            };
+            let mut best: Option<(&str, &&TypableCommand)> = None;
+            for (name, cmd) in typed::TYPABLE_COMMAND_MAP.iter() {
+                if let Some(remainder) = full.strip_prefix(name) {
+                    // Ensure the match boundary isn't mid-word
+                    if remainder.is_empty()
+                        || remainder
+                            .starts_with(|c: char| !c.is_alphanumeric() && c != '-' && c != '_')
+                    {
+                        if best.is_none() || name.len() > best.unwrap().0.len() {
+                            best = Some((name, cmd));
+                        }
+                    }
+                }
+            }
+            if let Some((name, cmd)) = best {
+                let args = &full[name.len()..];
+                execute_command(cx, cmd, args, event)
+            } else if event == PromptEvent::Validate {
+                Err(anyhow!("no such command: '{command}'"))
+            } else {
+                Ok(())
+            }
+        }
     }
 }
 
@@ -4060,6 +4410,15 @@ pub(super) fn command_mode(cx: &mut Context) {
         },
     );
     prompt.doc_fn = Box::new(command_line_doc);
+
+    // In vim visual modes, prepopulate with range indicator so ex commands
+    // operate on the visual selection (like vim's :'<,'>).
+    if cx.editor.config().vim_mode {
+        let mode = cx.editor.mode;
+        if matches!(mode, Mode::Visual | Mode::VisualLine | Mode::VisualBlock) {
+            prompt.set_line("'<,'>".into(), cx.editor);
+        }
+    }
 
     // Calculate initial completion
     prompt.recalculate_completion(cx.editor);
