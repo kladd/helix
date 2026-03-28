@@ -171,6 +171,10 @@ where
         Mode::Insert => &modenames.insert,
         Mode::Select => &modenames.select,
         Mode::Normal => &modenames.normal,
+        Mode::Visual => &modenames.visual,
+        Mode::VisualLine => &modenames.visual_line,
+        Mode::VisualBlock => &modenames.visual_block,
+        Mode::Replace => &modenames.replace,
     };
     let content = if visible {
         format!(" {mode_str} ")
@@ -183,6 +187,16 @@ where
             Mode::Insert => context.editor.theme.get("ui.statusline.insert"),
             Mode::Select => context.editor.theme.get("ui.statusline.select"),
             Mode::Normal => context.editor.theme.get("ui.statusline.normal"),
+            Mode::Visual | Mode::VisualLine | Mode::VisualBlock => context
+                .editor
+                .theme
+                .try_get("ui.statusline.visual")
+                .unwrap_or_else(|| context.editor.theme.get("ui.statusline.select")),
+            Mode::Replace => context
+                .editor
+                .theme
+                .try_get("ui.statusline.replace")
+                .unwrap_or_else(|| context.editor.theme.get("ui.statusline.normal")),
         }
     } else {
         Style::default()

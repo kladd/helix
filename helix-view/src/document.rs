@@ -66,6 +66,20 @@ pub enum Mode {
     Normal = 0,
     Select = 1,
     Insert = 2,
+    Visual = 3,
+    VisualLine = 4,
+    VisualBlock = 5,
+    Replace = 6,
+}
+
+impl Mode {
+    /// Returns true for any visual selection mode (including Helix Select).
+    pub fn is_visual(&self) -> bool {
+        matches!(
+            self,
+            Self::Visual | Self::VisualLine | Self::VisualBlock | Self::Select
+        )
+    }
 }
 
 impl Display for Mode {
@@ -74,6 +88,10 @@ impl Display for Mode {
             Mode::Normal => f.write_str("normal"),
             Mode::Select => f.write_str("select"),
             Mode::Insert => f.write_str("insert"),
+            Mode::Visual => f.write_str("visual"),
+            Mode::VisualLine => f.write_str("visual-line"),
+            Mode::VisualBlock => f.write_str("visual-block"),
+            Mode::Replace => f.write_str("replace"),
         }
     }
 }
@@ -86,6 +104,10 @@ impl FromStr for Mode {
             "normal" => Ok(Mode::Normal),
             "select" => Ok(Mode::Select),
             "insert" => Ok(Mode::Insert),
+            "visual" => Ok(Mode::Visual),
+            "visual-line" => Ok(Mode::VisualLine),
+            "visual-block" => Ok(Mode::VisualBlock),
+            "replace" => Ok(Mode::Replace),
             _ => bail!("Invalid mode '{}'", s),
         }
     }
