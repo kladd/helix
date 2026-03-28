@@ -84,6 +84,8 @@ pub fn vim_default() -> HashMap<Mode, KeyTrie> {
         "C-b" => page_up,
         "C-f" => page_down,
 
+        "C-o" => jump_backward,
+
         "z" => { "View"
             "z" => align_view_center,
             "t" => align_view_top,
@@ -115,6 +117,7 @@ pub fn vim_default() -> HashMap<Mode, KeyTrie> {
         "esc" => normal_mode,
         "C-[" => normal_mode,
 
+        // Motions (extend selection)
         "h" | "left" => extend_char_left,
         "j" | "down" => extend_line_down,
         "k" | "up" => extend_line_up,
@@ -142,21 +145,36 @@ pub fn vim_default() -> HashMap<Mode, KeyTrie> {
         "M" => goto_window_center,
         "L" => goto_window_bottom,
 
+        // Operators on selection
         "d" | "x" => delete_selection,
         "c" | "s" => change_selection,
         "y" => yank,
 
         ">" => indent,
         "<" => unindent,
+        "=" => format_selections,
 
         "~" => switch_case,
+        "u" => switch_to_lowercase,
+        "U" => switch_to_uppercase,
+
+        "J" => join_selections,
+        "r" => replace,
+        "p" => paste_after,
+        "P" => paste_before,
+
+        // Mode switching
+        "v" => vim_visual_mode,
+        "V" => vim_visual_line_mode,
+        "C-v" => vim_visual_block_mode,
 
         ":" => command_mode,
 
-        "f" => find_next_char,
-        "F" => find_prev_char,
-        "t" => find_till_char,
-        "T" => till_prev_char,
+        // Find / search
+        "f" => extend_next_char,
+        "F" => extend_prev_char,
+        "t" => extend_till_char,
+        "T" => extend_till_prev_char,
 
         "%" => match_brackets,
 
@@ -165,7 +183,14 @@ pub fn vim_default() -> HashMap<Mode, KeyTrie> {
         "n" => search_next,
         "N" => search_prev,
 
+        // Selection manipulation
         "o" => flip_selections,
+
+        // Scrolling
+        "C-u" => half_page_up,
+        "C-d" => half_page_down,
+        "C-b" => page_up,
+        "C-f" => page_down,
     });
 
     // Visual-line: reuses visual bindings, operations are linewise
@@ -173,22 +198,64 @@ pub fn vim_default() -> HashMap<Mode, KeyTrie> {
         "esc" => normal_mode,
         "C-[" => normal_mode,
 
-        "j" | "down" => extend_line_down,
-        "k" | "up" => extend_line_up,
+        "j" | "down" => vim_visual_line_down,
+        "k" | "up" => vim_visual_line_up,
 
+        "G" => goto_last_line,
+        "g" => { "Goto"
+            "g" => goto_file_start,
+        },
+
+        "H" => goto_window_top,
+        "M" => goto_window_center,
+        "L" => goto_window_bottom,
+
+        // Operators on selection
         "d" | "x" => delete_selection,
         "c" | "s" => change_selection,
         "y" => yank,
 
         ">" => indent,
         "<" => unindent,
+        "=" => format_selections,
+
+        "~" => switch_case,
+        "u" => switch_to_lowercase,
+        "U" => switch_to_uppercase,
+
+        "J" => join_selections,
+        "r" => replace,
+        "p" => paste_after,
+        "P" => paste_before,
+
+        // Mode switching
+        "v" => vim_visual_mode,
+        "V" => vim_visual_line_mode,
+        "C-v" => vim_visual_block_mode,
 
         ":" => command_mode,
 
+        // Find / search
+        "f" => extend_next_char,
+        "F" => extend_prev_char,
+        "t" => extend_till_char,
+        "T" => extend_till_prev_char,
+
+        "/" => search,
+        "?" => rsearch,
+        "n" => search_next,
+        "N" => search_prev,
+
         "o" => flip_selections,
+
+        // Scrolling
+        "C-u" => half_page_up,
+        "C-d" => half_page_down,
+        "C-b" => page_up,
+        "C-f" => page_down,
     });
 
-    // Visual-block: stub for now
+    // Visual-block: rectangular selection across lines
     let visual_block = keymap!({ "Visual-Block mode"
         "esc" => normal_mode,
         "C-[" => normal_mode,
@@ -198,13 +265,67 @@ pub fn vim_default() -> HashMap<Mode, KeyTrie> {
         "k" | "up" => extend_line_up,
         "l" | "right" => extend_char_right,
 
+        "w" => extend_next_word_start,
+        "W" => extend_next_long_word_start,
+        "b" => extend_prev_word_start,
+        "B" => extend_prev_long_word_start,
+        "e" => extend_next_word_end,
+        "E" => extend_next_long_word_end,
+
+        "0" => goto_line_start,
+        "^" => goto_first_nonwhitespace,
+        "$" => goto_line_end,
+
+        "G" => goto_last_line,
+        "g" => { "Goto"
+            "g" => goto_file_start,
+            "e" => extend_prev_word_end,
+            "E" => extend_prev_long_word_end,
+        },
+
+        // Operators on selection
         "d" | "x" => delete_selection,
         "c" | "s" => change_selection,
         "y" => yank,
 
+        ">" => indent,
+        "<" => unindent,
+        "=" => format_selections,
+
+        "~" => switch_case,
+        "u" => switch_to_lowercase,
+        "U" => switch_to_uppercase,
+
+        "J" => join_selections,
+        "r" => replace,
+        "p" => paste_after,
+        "P" => paste_before,
+
+        // Mode switching
+        "v" => vim_visual_mode,
+        "V" => vim_visual_line_mode,
+        "C-v" => vim_visual_block_mode,
+
         ":" => command_mode,
 
+        // Find / search
+        "f" => extend_next_char,
+        "F" => extend_prev_char,
+        "t" => extend_till_char,
+        "T" => extend_till_prev_char,
+
+        "/" => search,
+        "?" => rsearch,
+        "n" => search_next,
+        "N" => search_prev,
+
         "o" => flip_selections,
+
+        // Scrolling
+        "C-u" => half_page_up,
+        "C-d" => half_page_down,
+        "C-b" => page_up,
+        "C-f" => page_down,
     });
 
     // Replace mode: stub for now
