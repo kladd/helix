@@ -427,6 +427,10 @@ impl MappableCommand {
         normal_mode, "Enter normal mode",
         select_mode, "Enter selection extend mode",
         exit_select_mode, "Exit selection mode",
+        vim_visual_mode, "Enter vim visual mode",
+        vim_visual_line_mode, "Enter vim visual-line mode",
+        vim_visual_block_mode, "Enter vim visual-block mode",
+        vim_replace_mode, "Enter vim replace mode",
         goto_definition, "Goto definition",
         goto_declaration, "Goto declaration",
         add_newline_above, "Add newline above",
@@ -4088,6 +4092,81 @@ fn exit_select_mode(cx: &mut Context) {
     if cx.editor.mode == Mode::Select {
         cx.editor.mode = Mode::Normal;
     }
+}
+
+fn vim_visual_mode(cx: &mut Context) {
+    match cx.editor.mode {
+        Mode::Visual => {
+            // Toggle off: return to normal
+            cx.editor.enter_normal_mode();
+        }
+        _ => {
+            let (view, doc) = current!(cx.editor);
+            let text = doc.text().slice(..);
+            // Ensure selections are at least 1-width for visual mode
+            let selection = doc.selection(view.id).clone().transform(|range| {
+                if range.is_empty() && range.head == text.len_chars() {
+                    Range::new(
+                        graphemes::prev_grapheme_boundary(text, range.anchor),
+                        range.head,
+                    )
+                } else {
+                    range
+                }
+            });
+            doc.set_selection(view.id, selection);
+            cx.editor.mode = Mode::Visual;
+        }
+    }
+}
+
+fn vim_visual_line_mode(cx: &mut Context) {
+    match cx.editor.mode {
+        Mode::VisualLine => {
+            cx.editor.enter_normal_mode();
+        }
+        _ => {
+            let (view, doc) = current!(cx.editor);
+            let text = doc.text().slice(..);
+            // Extend selection to full lines
+            let selection = doc.selection(view.id).clone().transform(|range| {
+                let start_line = text.char_to_line(range.from());
+                let end_line = text.char_to_line(range.to());
+                let start = text.line_to_char(start_line);
+                let end = if end_line + 1 < text.len_lines() {
+                    text.line_to_char(end_line + 1)
+                } else {
+                    text.len_chars()
+                };
+                if range.head >= range.anchor {
+                    Range::new(start, end)
+                } else {
+                    Range::new(end, start)
+                }
+            });
+            doc.set_selection(view.id, selection);
+            cx.editor.mode = Mode::VisualLine;
+        }
+    }
+}
+
+fn vim_visual_block_mode(cx: &mut Context) {
+    match cx.editor.mode {
+        Mode::VisualBlock => {
+            cx.editor.enter_normal_mode();
+        }
+        _ => {
+            // For now, enter visual block mode with current selection
+            // Full column-block selection will be implemented in Phase 3
+            cx.editor.mode = Mode::VisualBlock;
+        }
+    }
+}
+
+fn vim_replace_mode(cx: &mut Context) {
+    // Stub: enters replace mode. Full overwrite-on-type behavior
+    // will be implemented in Phase 6.
+    cx.editor.mode = Mode::Replace;
 }
 
 fn goto_first_diag(cx: &mut Context) {

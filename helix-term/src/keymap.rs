@@ -1,8 +1,10 @@
 pub mod default;
 pub mod macros;
+pub mod vim_default;
 
 pub use crate::commands::MappableCommand;
 pub use default::default;
+pub use vim_default::vim_default;
 
 use arc_swap::{
     access::{DynAccess, DynGuard},
