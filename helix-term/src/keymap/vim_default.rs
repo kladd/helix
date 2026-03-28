@@ -73,9 +73,19 @@ pub fn vim_default() -> HashMap<Mode, KeyTrie> {
 
         "%" => match_brackets,
 
+        // Operators (enter operator-pending state)
+        "d" => vim_op_delete,
+        "c" => vim_op_change,
+        "y" => vim_op_yank,
+        ">" => vim_op_indent,
+        "<" => vim_op_outdent,
+        "=" => vim_op_autoindent,
+
+        // Shortcuts
         "x" => delete_char_forward,
         "p" => paste_after,
         "P" => paste_before,
+        "J" => join_selections,
 
         "~" => switch_case,
 
@@ -343,4 +353,47 @@ pub fn vim_default() -> HashMap<Mode, KeyTrie> {
         Mode::VisualBlock => visual_block,
         Mode::Replace => replace,
     )
+}
+
+/// Motion trie used during operator-pending mode.
+/// Maps motion keys to the same move commands used in normal mode.
+pub fn vim_motion_trie() -> KeyTrie {
+    keymap!({ "Motion"
+        "h" | "left" => move_char_left,
+        "j" | "down" => move_visual_line_down,
+        "k" | "up" => move_visual_line_up,
+        "l" | "right" => move_char_right,
+
+        "w" => move_next_word_start,
+        "W" => move_next_long_word_start,
+        "b" => move_prev_word_start,
+        "B" => move_prev_long_word_start,
+        "e" => move_next_word_end,
+        "E" => move_next_long_word_end,
+
+        "0" => goto_line_start,
+        "^" => goto_first_nonwhitespace,
+        "$" => goto_line_end,
+
+        "g" => { "Goto"
+            "g" => goto_file_start,
+            "e" => move_prev_word_end,
+            "E" => move_prev_long_word_end,
+        },
+        "G" => goto_last_line,
+
+        "H" => goto_window_top,
+        "M" => goto_window_center,
+        "L" => goto_window_bottom,
+
+        "f" => find_next_char,
+        "F" => find_prev_char,
+        "t" => find_till_char,
+        "T" => till_prev_char,
+
+        "%" => match_brackets,
+
+        "n" => search_next,
+        "N" => search_prev,
+    })
 }

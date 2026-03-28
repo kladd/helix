@@ -12,6 +12,7 @@ pub mod job;
 pub mod keymap;
 pub mod logging;
 pub mod ui;
+pub mod vim;
 
 #[cfg(not(windows))]
 use std::env::var_os;
