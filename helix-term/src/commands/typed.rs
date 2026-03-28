@@ -2532,6 +2532,37 @@ fn pipe(cx: &mut compositor::Context, args: Args, event: PromptEvent) -> anyhow:
     pipe_impl(cx, args, event, &ShellBehavior::Replace)
 }
 
+/// Vim `!`: filter selection through shell command (like `:pipe`).
+fn filter(cx: &mut compositor::Context, args: Args, event: PromptEvent) -> anyhow::Result<()> {
+    pipe_impl(cx, args, event, &ShellBehavior::Replace)
+}
+
+/// Vim `%!`: filter entire file through shell command.
+fn filter_all(cx: &mut compositor::Context, args: Args, event: PromptEvent) -> anyhow::Result<()> {
+    if event != PromptEvent::Validate {
+        return Ok(());
+    }
+
+    // Select the entire file, pipe through shell, then collapse cursor
+    let (view, doc) = current!(cx.editor);
+    let text = doc.text().slice(..);
+    let end = text.len_chars();
+    let saved_selection = doc.selection(view.id).clone();
+    doc.set_selection(view.id, Selection::single(0, end));
+
+    shell(cx, &args.join(" "), &ShellBehavior::Replace);
+
+    // Restore cursor to start of file (file contents changed)
+    let (view, doc) = current!(cx.editor);
+    let text = doc.text().slice(..);
+    let pos = saved_selection
+        .primary()
+        .cursor(text)
+        .min(text.len_chars().saturating_sub(1));
+    doc.set_selection(view.id, Selection::point(pos));
+    Ok(())
+}
+
 fn pipe_impl(
     cx: &mut compositor::Context,
     args: Args,
@@ -4107,7 +4138,7 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
     },
     TypableCommand {
         name: "run-shell-command",
-        aliases: &["sh", "!"],
+        aliases: &["sh"],
         doc: "Run a shell command",
         fun: run_shell_command,
         completer: SHELL_COMPLETER,
@@ -4264,6 +4295,22 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
             ..Signature::DEFAULT
         },
     },
+    TypableCommand {
+        name: "filter",
+        aliases: &["!"],
+        doc: "Filter selections through a shell command (pipe selection content, replace with output).",
+        fun: filter,
+        completer: SHELL_COMPLETER,
+        signature: SHELL_SIGNATURE,
+    },
+    TypableCommand {
+        name: "filter-all",
+        aliases: &["%!"],
+        doc: "Filter entire file through a shell command: :%!sort, :%!grep -v pattern, etc.",
+        fun: filter_all,
+        completer: SHELL_COMPLETER,
+        signature: SHELL_SIGNATURE,
+    },
 ];
 
 pub static TYPABLE_COMMAND_MAP: Lazy<HashMap<&'static str, &'static TypableCommand>> =
@@ -4277,15 +4324,14 @@ pub static TYPABLE_COMMAND_MAP: Lazy<HashMap<&'static str, &'static TypableComma
             .collect()
     });
 
-/// Strip a vim-style range prefix (e.g., `'<,'>`, `%`, `1,5`) from the input.
-/// Returns the input with the range removed. The range itself is currently
-/// ignored — commands operate on the existing selection which visual mode
-/// has already set.
+/// Strip a vim-style range prefix (e.g., `'<,'>`, `1,5`) from the input.
+/// The range itself is currently ignored — commands operate on the existing
+/// selection which visual mode has already set.
 fn strip_ex_range(input: &str) -> &str {
     let s = input.trim_start();
-    // Note: `%` as a range is not stripped here because `%s` is a command
-    // alias for substitute-all. A standalone `%` range before other commands
-    // can be added later with proper range parsing.
+    // Note: `%` as a range is not stripped here because `%s` and `%!` are
+    // command aliases. A standalone `%` range before other commands can be
+    // added later with proper range parsing.
     // '< ,' '> prefix (visual selection range)
     if s.starts_with("'<,'>") {
         return &s[5..];
@@ -4329,6 +4375,7 @@ fn execute_command_line(
     } else {
         input
     };
+
     let (command, rest, _) = command_line::split(input);
     if command.is_empty() {
         return Ok(());
