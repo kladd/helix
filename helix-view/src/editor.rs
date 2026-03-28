@@ -1282,6 +1282,75 @@ pub struct Editor {
 
     pub mouse_down_range: Option<Range>,
     pub cursor_cache: CursorCache,
+
+    /// Vim operator-pending state. Present only when `vim_mode` is enabled.
+    pub vim_state: Option<VimState>,
+}
+
+/// A vim operator that acts on a motion range.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VimOperator {
+    Delete,
+    Change,
+    Yank,
+    Indent,
+    Outdent,
+    AutoIndent,
+    Uppercase,
+    Lowercase,
+    ToggleCase,
+}
+
+impl VimOperator {
+    /// The key that triggers this operator (for doubled-operator detection).
+    pub fn trigger_key(&self) -> char {
+        match self {
+            VimOperator::Delete => 'd',
+            VimOperator::Change => 'c',
+            VimOperator::Yank => 'y',
+            VimOperator::Indent => '>',
+            VimOperator::Outdent => '<',
+            VimOperator::AutoIndent => '=',
+            VimOperator::Uppercase => 'U',
+            VimOperator::Lowercase => 'u',
+            VimOperator::ToggleCase => '~',
+        }
+    }
+}
+
+/// Persistent vim state for the operator-pending state machine.
+#[derive(Debug, Default)]
+pub struct VimState {
+    /// The pending operator (set when user presses d, c, y, etc.).
+    pub pending_operator: Option<VimOperator>,
+    /// Count entered before the operator (e.g., the 3 in `3dw`).
+    pub pre_count: Option<std::num::NonZeroUsize>,
+    /// Count entered after the operator (e.g., the 2 in `d2w`).
+    pub post_count: Option<std::num::NonZeroUsize>,
+    /// Whether we've started accumulating post-count digits.
+    pub accumulating_post_count: bool,
+    /// Saved selection from before the motion executes.
+    pub saved_selection: Option<Selection>,
+}
+
+impl VimState {
+    pub fn is_pending(&self) -> bool {
+        self.pending_operator.is_some()
+    }
+
+    pub fn effective_count(&self) -> usize {
+        let pre = self.pre_count.map_or(1, |n| n.get());
+        let post = self.post_count.map_or(1, |n| n.get());
+        pre * post
+    }
+
+    pub fn reset(&mut self) {
+        self.pending_operator = None;
+        self.pre_count = None;
+        self.post_count = None;
+        self.accumulating_post_count = false;
+        self.saved_selection = None;
+    }
 }
 
 pub type Motion = Box<dyn Fn(&mut Editor)>;
@@ -1405,6 +1474,11 @@ impl Editor {
             mouse_down_range: None,
             cursor_cache: CursorCache::default(),
             dir_stack: VecDeque::with_capacity(DIR_STACK_CAP),
+            vim_state: if conf.vim_mode {
+                Some(VimState::default())
+            } else {
+                None
+            },
         }
     }
 
