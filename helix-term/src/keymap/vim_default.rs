@@ -103,6 +103,7 @@ pub fn vim_default() -> HashMap<Mode, KeyTrie> {
         "C-f" => page_down,
 
         "C-o" => jump_backward,
+        "C-i" | "tab" => jump_forward,
 
         "C-w" => { "Window"
             "C-w" | "w" => rotate_view,
