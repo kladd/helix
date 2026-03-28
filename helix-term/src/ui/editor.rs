@@ -1175,7 +1175,22 @@ impl EditorView {
             }
         }
 
-        // 4. Motion trie lookup
+        // 4. Text object: `i` or `a` prefix (e.g., `diw`, `ca"`)
+        if self.vim_motion_pending.is_empty() {
+            if let Some(ch) = event.char() {
+                if ch == 'i' || ch == 'a' {
+                    let objtype = if ch == 'i' {
+                        helix_core::textobject::TextObject::Inside
+                    } else {
+                        helix_core::textobject::TextObject::Around
+                    };
+                    self.vim_execute_operator_with_textobject(cxt, objtype);
+                    return;
+                }
+            }
+        }
+
+        // 5. Motion trie lookup
         let motion_trie = match &self.vim_motion_trie {
             Some(trie) => trie,
             None => {
@@ -1328,7 +1343,75 @@ impl EditorView {
         }
     }
 
-    /// Apply a vim operator to the current selection.
+    /// Set up an on_next_key callback to read the text object character,
+    /// compute the text object range, and apply the pending operator.
+    fn vim_execute_operator_with_textobject(
+        &mut self,
+        cxt: &mut commands::Context,
+        objtype: helix_core::textobject::TextObject,
+    ) {
+        use helix_core::textobject;
+
+        let vim = cxt.editor.vim_state.as_ref().unwrap();
+        let operator = vim.pending_operator.unwrap();
+        let count = vim.effective_count();
+
+        cxt.on_next_key_callback = Some((
+            Box::new(move |cx: &mut commands::Context, event: KeyEvent| {
+                if let Some(ch) = event.char() {
+                    let (view, doc) = current!(cx.editor);
+                    let loader = cx.editor.syn_loader.load();
+                    let text = doc.text().slice(..);
+
+                    let textobject_treesitter = |obj_name: &str, range: Range| -> Range {
+                        let Some(syntax) = doc.syntax() else {
+                            return range;
+                        };
+                        textobject::textobject_treesitter(
+                            text, range, objtype, obj_name, syntax, &loader, count,
+                        )
+                    };
+
+                    let selection = doc.selection(view.id).clone().transform(|range| match ch {
+                        'w' => textobject::textobject_word(text, range, objtype, count, false),
+                        'W' => textobject::textobject_word(text, range, objtype, count, true),
+                        't' => textobject_treesitter("class", range),
+                        'f' => textobject_treesitter("function", range),
+                        'a' => textobject_treesitter("parameter", range),
+                        'c' => textobject_treesitter("comment", range),
+                        'T' => textobject_treesitter("test", range),
+                        'e' => textobject_treesitter("entry", range),
+                        'x' => textobject_treesitter("xml-element", range),
+                        'p' => textobject::textobject_paragraph(text, range, objtype, count),
+                        'm' => textobject::textobject_pair_surround_closest(
+                            doc.syntax(),
+                            text,
+                            range,
+                            objtype,
+                            count,
+                        ),
+                        ch if !ch.is_ascii_alphanumeric() => textobject::textobject_pair_surround(
+                            doc.syntax(),
+                            text,
+                            range,
+                            objtype,
+                            ch,
+                            count,
+                        ),
+                        _ => range,
+                    });
+                    doc.set_selection(view.id, selection);
+                    vim::apply_operator(cx, operator);
+                }
+
+                if let Some(ref mut vim) = cx.editor.vim_state {
+                    vim.reset();
+                }
+            }),
+            commands::OnKeyCallbackKind::PseudoPending,
+        ));
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub fn set_completion(
         &mut self,
