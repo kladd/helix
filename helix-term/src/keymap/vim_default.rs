@@ -1,11 +1,12 @@
 use std::collections::HashMap;
 
+use super::common::space_keymap;
 use super::macros::keymap;
 use super::{KeyTrie, Mode};
 use helix_core::hashmap;
 
 pub fn vim_default() -> HashMap<Mode, KeyTrie> {
-    let normal = keymap!({ "Normal mode"
+    let mut normal = keymap!({ "Normal mode"
         "h" | "left" => move_char_left,
         "j" | "down" => move_visual_line_down,
         "k" | "up" => move_visual_line_up,
@@ -103,6 +104,10 @@ pub fn vim_default() -> HashMap<Mode, KeyTrie> {
         },
     });
 
+    // Add the shared Space keymap to normal mode
+    let space_key = "space".parse::<helix_view::input::KeyEvent>().unwrap();
+    normal.node_mut().unwrap().insert(space_key, space_keymap());
+
     let insert = keymap!({ "Insert mode"
         "esc" => normal_mode,
         "C-[" => normal_mode,
@@ -123,7 +128,7 @@ pub fn vim_default() -> HashMap<Mode, KeyTrie> {
     });
 
     // Visual mode: motions extend selection, operators act on selection
-    let visual = keymap!({ "Visual mode"
+    let mut visual = keymap!({ "Visual mode"
         "esc" => normal_mode,
         "C-[" => normal_mode,
 
@@ -202,9 +207,10 @@ pub fn vim_default() -> HashMap<Mode, KeyTrie> {
         "C-b" => page_up,
         "C-f" => page_down,
     });
+    visual.node_mut().unwrap().insert(space_key, space_keymap());
 
     // Visual-line: reuses visual bindings, operations are linewise
-    let visual_line = keymap!({ "Visual-Line mode"
+    let mut visual_line = keymap!({ "Visual-Line mode"
         "esc" => normal_mode,
         "C-[" => normal_mode,
 
@@ -264,9 +270,13 @@ pub fn vim_default() -> HashMap<Mode, KeyTrie> {
         "C-b" => page_up,
         "C-f" => page_down,
     });
+    visual_line
+        .node_mut()
+        .unwrap()
+        .insert(space_key, space_keymap());
 
     // Visual-block: rectangular selection across lines
-    let visual_block = keymap!({ "Visual-Block mode"
+    let mut visual_block = keymap!({ "Visual-Block mode"
         "esc" => normal_mode,
         "C-[" => normal_mode,
 
@@ -337,6 +347,10 @@ pub fn vim_default() -> HashMap<Mode, KeyTrie> {
         "C-b" => page_up,
         "C-f" => page_down,
     });
+    visual_block
+        .node_mut()
+        .unwrap()
+        .insert(space_key, space_keymap());
 
     // Replace mode: stub for now
     let replace = keymap!({ "Replace mode"
