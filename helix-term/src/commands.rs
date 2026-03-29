@@ -431,6 +431,7 @@ impl MappableCommand {
         vim_visual_line_mode, "Enter vim visual-line mode",
         vim_visual_block_mode, "Enter vim visual-block mode",
         vim_replace_mode, "Enter vim replace mode",
+        vim_normal_mode, "Enter vim normal mode (collapse selection)",
         vim_visual_line_up, "Move cursor up in visual-line mode",
         vim_visual_line_down, "Move cursor down in visual-line mode",
         vim_op_delete, "Vim delete operator",
@@ -1683,6 +1684,7 @@ fn find_char_line_ending_motion(
     inclusive: bool,
     extend: bool,
 ) {
+    let vim_normal = editor.vim_state.is_some() && editor.mode == Mode::Normal;
     let (view, doc) = current!(editor);
     let text = doc.text().slice(..);
 
@@ -1723,7 +1725,9 @@ fn find_char_line_ending_motion(
             }
         };
 
-        if extend {
+        if vim_normal {
+            Range::point(pos)
+        } else if extend {
             range.put_cursor(text, pos, true)
         } else {
             Range::point(range.cursor(text)).put_cursor(text, pos, true)
@@ -1751,6 +1755,7 @@ fn find_char(cx: &mut Context, direction: Direction, inclusive: bool, extend: bo
             _ => None,
         } {
             Box::new(move |editor: &mut Editor| {
+                let vim_normal = editor.vim_state.is_some() && editor.mode == Mode::Normal;
                 let (view, doc) = current!(editor);
                 let text = doc.text().slice(..);
 
@@ -1775,7 +1780,9 @@ fn find_char(cx: &mut Context, direction: Direction, inclusive: bool, extend: bo
                             (false, Direction::Backward) => pos + 1,
                         })
                         .map_or(range, |pos| {
-                            if extend {
+                            if vim_normal {
+                                Range::point(pos)
+                            } else if extend {
                                 range.put_cursor(text, pos, true)
                             } else {
                                 Range::point(range.cursor(text)).put_cursor(text, pos, true)
@@ -4262,6 +4269,18 @@ fn vim_visual_block_mode(cx: &mut Context) {
             cx.editor.mode = Mode::VisualBlock;
         }
     }
+}
+
+fn vim_normal_mode(cx: &mut Context) {
+    cx.editor.enter_normal_mode();
+    // Collapse selections so escaping visual mode clears the selection
+    let (view, doc) = current!(cx.editor);
+    let text = doc.text().slice(..);
+    let selection = doc.selection(view.id).clone().transform(|range| {
+        let pos = range.cursor(text);
+        Range::new(pos, pos)
+    });
+    doc.set_selection(view.id, selection);
 }
 
 fn vim_replace_mode(cx: &mut Context) {
