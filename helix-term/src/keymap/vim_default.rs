@@ -165,8 +165,8 @@ pub fn vim_default() -> HashMap<Mode, KeyTrie> {
 
     // Shared visual mode bindings (operators, mode switching, search, etc.)
     let visual_shared = keymap!({ "Visual shared"
-        "esc" => normal_mode,
-        "C-[" => normal_mode,
+        "esc" => vim_normal_mode,
+        "C-[" => vim_normal_mode,
 
         // Operators on selection
         "d" | "x" => delete_selection,
