@@ -223,6 +223,19 @@ pub fn vim_default() -> HashMap<Mode, KeyTrie> {
         "C-d" => half_page_down,
         "C-b" => page_up,
         "C-f" => page_down,
+
+        "g" => { "Goto"
+            "g" => goto_file_start,
+            "e" => move_prev_word_end,
+            "E" => move_prev_long_word_end,
+            "h" => goto_line_start,
+            "l" => goto_line_end,
+            "s" => goto_first_nonwhitespace,
+            "t" => goto_window_top,
+            "c" => goto_window_center,
+            "b" => goto_window_bottom,
+            "q" => vim_reflow,
+        },
     });
 
     // Visual mode: character-wise motions extend selection
