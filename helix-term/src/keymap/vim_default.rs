@@ -148,9 +148,9 @@ pub fn vim_default() -> HashMap<Mode, KeyTrie> {
     let insert = keymap!({ "Insert mode"
         "esc" => normal_mode,
         "C-[" => normal_mode,
-        "backspace" => delete_char_backward,
+        "backspace" | "S-backspace" => delete_char_backward,
         "del" => delete_char_forward,
-        "ret" => insert_newline,
+        "ret" | "S-ret" => insert_newline,
         "tab" => insert_tab,
         "C-w" => delete_word_backward,
         "C-u" => kill_to_line_start,
