@@ -432,6 +432,7 @@ impl MappableCommand {
         vim_visual_block_mode, "Enter vim visual-block mode",
         vim_replace_mode, "Enter vim replace mode",
         vim_normal_mode, "Enter vim normal mode (collapse selection)",
+        vim_reflow, "Vim gq: reflow text",
         vim_visual_line_up, "Move cursor up in visual-line mode",
         vim_visual_line_down, "Move cursor down in visual-line mode",
         vim_op_delete, "Vim delete operator",
@@ -4421,6 +4422,24 @@ fn vim_substitute_line(cx: &mut Context) {
     let (start, end) = crate::vim::linewise_range(text, cursor_pos, count);
     doc.set_selection(view.id, Selection::single(start, end));
     crate::vim::apply_operator(cx, VimOperator::Change);
+}
+
+fn vim_reflow(cx: &mut Context) {
+    let scrolloff = cx.editor.config().scrolloff;
+    let (view, doc) = current!(cx.editor);
+    let text_width = doc.text_width();
+    let rope = doc.text();
+
+    let selection = doc.selection(view.id);
+    let transaction = Transaction::change_by_selection(rope, selection, |range| {
+        let fragment = range.fragment(rope.slice(..));
+        let reflowed_text = helix_core::wrap::reflow_hard_wrap(&fragment, text_width);
+        (range.from(), range.to(), Some(reflowed_text))
+    });
+
+    doc.apply(&transaction, view.id);
+    doc.append_changes_to_history(view);
+    view.ensure_cursor_in_view(doc, scrolloff);
 }
 
 fn goto_first_diag(cx: &mut Context) {
