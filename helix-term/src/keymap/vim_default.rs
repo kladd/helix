@@ -39,6 +39,7 @@ pub fn vim_default() -> HashMap<Mode, KeyTrie> {
             "c" => goto_window_center,
             "b" => goto_window_bottom,
             "x" => goto_file,
+            "q" => vim_reflow,
         },
         "G" => goto_last_line,
 
