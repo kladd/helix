@@ -5137,11 +5137,25 @@ fn yank_impl(editor: &mut Editor, register: char) {
     let (view, doc) = current!(editor);
     let text = doc.text().slice(..);
 
-    let values: Vec<String> = doc
+    let mut values: Vec<String> = doc
         .selection(view.id)
         .fragments(text)
         .map(Cow::into_owned)
         .collect();
+
+    // If this is a line-wise yank, ensure it's a line-wise paste.
+    if matches!(editor.mode, Mode::VisualLine) {
+        values.last_mut().map(|last| {
+            if get_line_ending_of_str(last).is_none() {
+                last.push('\n');
+            } else {
+                log::warn!("got line ending for '{last}'");
+            }
+        });
+    } else {
+        log::warn!("not visual line mode");
+    }
+
     let selections = values.len();
 
     match editor.registers.write(register, values) {
