@@ -4402,8 +4402,16 @@ fn execute_command_line(
             let mut best: Option<(&str, &&TypableCommand)> = None;
             for (name, cmd) in typed::TYPABLE_COMMAND_MAP.iter() {
                 if let Some(remainder) = full.strip_prefix(name) {
-                    // Ensure the match boundary isn't mid-word
+                    // Ensure the match boundary isn't mid-word. If the command
+                    // name itself ends in a non-word char (e.g. `!`, `%!`),
+                    // the boundary is already unambiguous and the argument may
+                    // start with any character.
+                    let name_ends_in_word = name
+                        .chars()
+                        .last()
+                        .is_some_and(|c| c.is_alphanumeric() || c == '-' || c == '_');
                     if remainder.is_empty()
+                        || !name_ends_in_word
                         || remainder
                             .starts_with(|c: char| !c.is_alphanumeric() && c != '-' && c != '_')
                     {
