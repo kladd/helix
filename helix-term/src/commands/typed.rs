@@ -4357,7 +4357,9 @@ fn strip_ex_range(input: &str) -> &str {
             _ => break,
         }
     }
-    if has_range_char && i > 0 {
+    // Only strip when a command follows the range. A bare `:80` or `:1,5` is
+    // not a range prefix — it's a line jump, handled downstream.
+    if has_range_char && i > 0 && i < s.len() {
         return &s[i..];
     }
     input
