@@ -2534,7 +2534,13 @@ fn pipe(cx: &mut compositor::Context, args: Args, event: PromptEvent) -> anyhow:
 
 /// Vim `!`: filter selection through shell command (like `:pipe`).
 fn filter(cx: &mut compositor::Context, args: Args, event: PromptEvent) -> anyhow::Result<()> {
-    pipe_impl(cx, args, event, &ShellBehavior::Replace)
+    pipe_impl(cx, args, event, &ShellBehavior::Replace)?;
+
+    if event == PromptEvent::Validate {
+        cx.editor.exit_select_mode();
+    }
+
+    Ok(())
 }
 
 /// Vim `%!`: filter entire file through shell command.
@@ -2547,19 +2553,12 @@ fn filter_all(cx: &mut compositor::Context, args: Args, event: PromptEvent) -> a
     let (view, doc) = current!(cx.editor);
     let text = doc.text().slice(..);
     let end = text.len_chars();
-    let saved_selection = doc.selection(view.id).clone();
     doc.set_selection(view.id, Selection::single(0, end));
 
     shell(cx, &args.join(" "), &ShellBehavior::Replace);
 
-    // Restore cursor to start of file (file contents changed)
-    let (view, doc) = current!(cx.editor);
-    let text = doc.text().slice(..);
-    let pos = saved_selection
-        .primary()
-        .cursor(text)
-        .min(text.len_chars().saturating_sub(1));
-    doc.set_selection(view.id, Selection::point(pos));
+    cx.editor.exit_select_mode();
+
     Ok(())
 }
 

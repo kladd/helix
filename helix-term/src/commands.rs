@@ -3132,14 +3132,7 @@ fn change_selection_noyank(cx: &mut Context) {
 }
 
 fn collapse_selection(cx: &mut Context) {
-    let (view, doc) = current!(cx.editor);
-    let text = doc.text().slice(..);
-
-    let selection = doc.selection(view.id).clone().transform(|range| {
-        let pos = range.cursor(text);
-        Range::new(pos, pos)
-    });
-    doc.set_selection(view.id, selection);
+    cx.editor.collapse_selection();
 }
 
 fn flip_selections(cx: &mut Context) {
@@ -4115,12 +4108,7 @@ fn select_mode(cx: &mut Context) {
 }
 
 fn exit_select_mode(cx: &mut Context) {
-    match cx.editor.mode {
-        Mode::Select | Mode::Visual | Mode::VisualLine | Mode::VisualBlock => {
-            cx.editor.mode = Mode::Normal;
-        }
-        _ => {}
-    }
+    cx.editor.exit_select_mode();
 }
 
 fn vim_visual_mode(cx: &mut Context) {
