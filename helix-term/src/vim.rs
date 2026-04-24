@@ -1,7 +1,6 @@
 pub use helix_view::editor::{VimOperator, VimState};
 
 use helix_core::{Range, RopeSlice};
-use helix_view::document::Mode;
 
 use crate::commands;
 
@@ -99,9 +98,6 @@ pub fn apply_operator(cxt: &mut commands::Context, operator: VimOperator) {
     match operator {
         VimOperator::Delete => {
             commands::MappableCommand::delete_selection.execute(cxt);
-            if cxt.editor.mode != Mode::Normal {
-                cxt.editor.mode = Mode::Normal;
-            }
         }
         VimOperator::Change => {
             commands::MappableCommand::change_selection.execute(cxt);
@@ -170,6 +166,8 @@ pub fn apply_operator(cxt: &mut commands::Context, operator: VimOperator) {
             doc.set_selection(view.id, selection);
         }
     }
+
+    cxt.editor.exit_select_mode();
 }
 
 /// Compute a linewise range for `count` lines starting from the cursor position.

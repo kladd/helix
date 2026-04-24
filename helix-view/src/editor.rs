@@ -2472,6 +2472,28 @@ impl Editor {
         }
     }
 
+    /// Collapses selections and switches the editor into normal mode.
+    pub fn exit_select_mode(&mut self) {
+        match self.mode {
+            Mode::Select | Mode::Visual | Mode::VisualLine | Mode::VisualBlock => {
+                self.collapse_selection();
+                self.enter_normal_mode();
+            }
+            _ => {}
+        }
+    }
+
+    /// Collapses selections to their start position.
+    pub fn collapse_selection(&mut self) {
+        let (view, doc) = current!(self);
+
+        let selection = doc.selection(view.id).clone().transform(|range| {
+            let pos = range.from();
+            Range::new(pos, pos)
+        });
+        doc.set_selection(view.id, selection);
+    }
+
     pub fn current_stack_frame(&self) -> Option<&dap::StackFrame> {
         self.debug_adapters.current_stack_frame()
     }
