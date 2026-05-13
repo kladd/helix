@@ -1,0 +1,38 @@
+# USGC-POLYIMIDE (PN# 5200-030) - Amber scheme
+# https://github.com/usgraphicsco/usgc-themes
+
+"ui.background" = { fg = "fg", bg = "bg" }
+"ui.cursor" = { modifiers = ["reversed"] }
+"ui.cursor.primary" = { modifiers = ["reversed"] }
+"ui.selection" = { fg = "#00FFFF", bg = "#000066" }
+"ui.selection.primary" = { fg = "#00FFFF", bg = "#000066" }
+"ui.cursorline.primary" = { bg = "cursorline" }
+"ui.linenr" = { fg = "gutter_fg" }
+"ui.linenr.selected" = { fg = "gutter_fg_hl" }
+"ui.gutter.selected" = { bg = "gutter_hl_bg" }
+"ui.statusline" = { fg = "gutter_fg" }
+"ui.statusline.inactive" = { fg = "gutter_fg" }
+"ui.menu" = { fg = "fg", bg = "bg" }
+"ui.menu.selected" = { fg = "bg", bg = "fg" }
+"ui.popup" = { fg = "fg", bg = "bg" }
+"ui.help" = { fg = "fg", bg = "bg" }
+"ui.text" = { fg = "fg" }
+"ui.text.focus" = { fg = "fg" }
+
+"comment" = { fg = "gray" }
+"string" = { fg = "fg" }
+"keyword" = { fg = "fg" }
+"function" = { fg = "fg" }
+"type" = { fg = "fg" }
+"variable" = { fg = "fg" }
+"constant" = { fg = "fg" }
+"operator" = { fg = "fg" }
+"punctuation" = { fg = "fg" }
+
+[palette]
+bg = "#000000"
+fg = "#FFBF00"
+cursorline = "#0000FF"
+gutter_fg = "#FF6600"
+gutter_fg_hl = "#00FFFF"
+gutter_hl_bg = "#000066"
