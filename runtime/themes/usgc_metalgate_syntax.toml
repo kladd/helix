@@ -1,0 +1,52 @@
+# USGC-METALGATE (PN# 5200-050) - Cyan scheme
+# https://github.com/usgraphicsco/usgc-themes
+
+"ui.background" = { fg = "fg", bg = "bg" }
+"ui.cursor" = { modifiers = ["reversed"] }
+"ui.cursor.primary" = { modifiers = ["reversed"] }
+"ui.selection" = { fg = "#FFFF00", bg = "#666600" }
+"ui.selection.primary" = { fg = "#FFFF00", bg = "#666600" }
+"ui.cursorline.primary" = { bg = "cursorline" }
+"ui.linenr" = { fg = "gutter_fg" }
+"ui.linenr.selected" = { fg = "gutter_fg_hl" }
+"ui.gutter.selected" = { bg = "gutter_hl_bg" }
+"ui.statusline" = { fg = "gutter_fg" }
+"ui.statusline.inactive" = { fg = "gutter_fg" }
+"ui.menu" = { fg = "fg", bg = "bg" }
+"ui.menu.selected" = { fg = "bg", bg = "fg" }
+"ui.popup" = { fg = "fg", bg = "bg" }
+"ui.help" = { fg = "fg", bg = "bg" }
+"ui.text" = { fg = "fg" }
+"ui.text.focus" = { fg = "fg" }
+
+"comment" = { fg = "fl_yellow" }
+"string" = { fg = "fl_yellow" }
+"keyword" = { fg = "fl_magenta" }
+"function" = { fg = "fg" }
+"type" = { fg = "fg" }
+"variable" = { fg = "fg" }
+"constant" = { fg = "fg" }
+"operator" = { fg = "fg" }
+"punctuation" = { fg = "fg" }
+
+[palette]
+bg = "#000000"
+fg = "#00FFFF"
+cursorline = "#0000FF"
+gutter_fg = "#FFFF00"
+gutter_fg_hl = "#FFFF00"
+gutter_hl_bg = "#666600"
+fl_red = "#FF0000"
+fl_green = "#00FF00"
+fl_blue = "#0000FF"
+fl_cyan = "#00FFFF"
+fl_magenta = "#FF00FF"
+fl_yellow = "#FFFF00"
+maroon = "#660000"
+green = "#00a645"
+blue = "#000066"
+cyan = "#006666"
+magenta = "#660066"
+yellow = "#FFBF00"
+olive = "#666600"
+gray = "#999999"

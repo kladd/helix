@@ -1,0 +1,170 @@
+# fleet_dark shifted in Oklab to usgc foreground
+# Fleet Dark
+# A take on the JetBrains Fleet theme. Feel free to contribute
+
+# Original author: @krfl
+# Contributors:
+# @matoous
+# @kirawi
+
+"attribute" = "Lime"
+
+"type" = "Blue"
+"type.return" = "Blue Light"
+"type.parameter" = "Blue Light"
+"constructor" = "Yellow"
+
+"constant" = "Violet"
+# "constant.builtin" = {} # .boolean
+"constant.builtin.boolean" = "Cyan"
+"constant.character" = "Yellow"
+"constant.character.escape" = "Cyan"
+"constant.numeric" = "Yellow"
+"string" = "Pink"
+"string.regexp" = "Cyan"
+"string.special" = { fg = "Yellow", modifiers = ["underlined"] } #.path / .url / .symbol
+
+"comment" = "Gray 90" # .line
+# "comment.block" = {} # .documentation
+"variable" = "Gray 120" # .builtin
+"variable.builtin" = { fg = "Coral" }
+# "variable.other" = {} # .member
+"variable.other.member" = "Violet"
+"label" = "Yellow"
+"keyword" = "Cyan" # .operator / .directive / .function
+"function" = "Yellow"
+"function.declaration" = "#98ECC3"
+"function.macro" = "Lime"
+"function.builtin" = "Lime"
+"function.special" = "Lime"
+#"function.declaration.method" = { fg = "lightest", modifiers = ["bold"] } #depends on #4892
+"tag" = "Blue"
+"special" = "Lime"
+"namespace" = "Blue"
+
+# used in theming
+# "markup" = {} # .normal / .quote / .raw
+# "markup.normal" = {} # .completion / .hover
+"markup.bold" = {  modifiers = ["bold"] }
+"markup.italic" = { modifiers = ["italic"] }
+"markup.strikethrough" = { modifiers = ["crossed_out"] }
+"markup.heading" = { fg = "Cyan", modifiers = ["bold"] } # .marker / .1 / .2 / .3 / .4 / .5 / .6
+"markup.list" = "Pink" # .unnumbered / .numbered
+"markup.list.numbered" = "Cyan"
+"markup.list.unnumbered" = "Cyan"
+# "markup.link" = "green"
+"markup.link.url" = { fg = "Pink", modifiers = ['italic', 'underlined'] }
+"markup.link.text" = "Cyan"
+"markup.link.label" = "Purple 20"
+"markup.quote" = "Pink"
+"markup.raw" = "Pink"
+"markup.raw.inline" = "Cyan" # .completion / .hover
+"markup.raw.block" = "#AA8BB9"
+
+"diff.plus" = "Green 50"
+"diff.minus" = "Red 50"
+"diff.delta" = "Blue 80"
+
+# ui specific
+"ui.background" = { } # .separator
+"ui.statusline" = { fg = "Gray 120", bg = "Gray 20" } # .inactive / .normal / .insert / .select
+"ui.statusline.normal" = { fg = "Gray 120", bg = "Gray 20" }
+"ui.statusline.inactive" = { fg = "Gray 90"}
+"ui.statusline.insert" = { fg = "Gray 20", bg = "Blue 90" }
+"ui.statusline.select" = { fg = "Gray 20", bg = "Yellow 60" }
+
+"ui.cursor" = { modifiers = ["reversed"] } # .insert / .select / .match / .primary
+"ui.cursor.match" = { bg = "Blue 30" } # .insert / .select / .match / .primary
+"ui.selection" = { bg = "Gray 50" } # .primary
+"ui.selection.primary" = { bg = "Blue 40" }
+
+"ui.cursorline" = { bg = "Gray 15" }
+"ui.linenr" = "Gray 70"
+"ui.linenr.selected" = "Gray 110"
+
+"ui.popup" = { fg = "Gray 120", bg = "Gray 20" } # .info
+"ui.window" = { fg = "Gray 50" }
+"ui.help" = { fg = "Gray 120", bg = "Gray 20" }
+"ui.menu" = { fg = "Gray 120", bg = "Gray 20" } # .selected
+"ui.menu.selected" = { fg = "White", bg = "Blue 40" } # .selected
+# Calculated as #A7FCD2 with 30% opacity
+"ui.menu.scroll" = { fg = "#88DCB3" }
+
+"ui.text" = "Gray 120" # .focus / .info
+"ui.text.focus" = { fg = "White", bg = "Blue 40" }
+
+"ui.virtual" = "Gray 90" # .whitespace
+"ui.virtual.inlay-hint" = { fg = "Gray 70" }
+"ui.virtual.ruler" = { bg = "Gray 20" }
+
+"hint" = "Gray 80"
+"info" = "#606B9D"
+"warning" = "#B2C80E"
+"error" = "#C5623A"
+
+"diagnostic.hint" = { underline = { color = "Gray 80", style = "line" } }
+"diagnostic.info" = { underline = { color = "#606B9D", style = "line" } }
+"diagnostic.warning" = { underline = { color = "#B2C80E", style = "line" } }
+"diagnostic.error" = { underline = { color = "#C5623A", style = "line" } }
+"diagnostic.unnecessary" = { modifiers = ["dim"] }
+"diagnostic.deprecated" = { modifiers = ["crossed_out"] }
+
+[palette]
+"White" = "#A7FCD2"
+"Gray 120" = "#7ACEA6"
+"Gray 110" = "#6BBF98"
+"Gray 100" = "#489D77"
+"Gray 90" = "#2E8561"
+"Gray 80" = "#14724F"
+"Gray 70" = "#005938"
+"Gray 60" = "#004424"
+"Gray 50" = "#003315"
+"Gray 40" = "#002E11"
+"Gray 30" = "#00280B"
+"Gray 20" = "#002407"
+"Gray 15" = "#001901"
+"Gray 10" = "#001200"
+"Black" = "#000400"
+"Blue 110" = "#00A6CE"
+"Blue 100" = "#0097D0"
+"Blue 90" = "#008DD1"
+"Blue 80" = "#0081CE"
+"Blue 70" = "#0070C3"
+"Blue 60" = "#006AB6"
+"Blue 50" = "#005A8F"
+"Blue 40" = "#003C53"
+"Blue 30" = "#003242"
+"Blue 20" = "#00272F"
+"Blue 10" = "#001514"
+"Red 80" = "#B07A5E"
+"Red 70" = "#B15B3B"
+"Red 60" = "#A24C23"
+"Red 50" = "#97481C"
+"Red 40" = "#8A4318"
+"Red 30" = "#733A0F"
+"Red 20" = "#452800"
+"Red 10" = "#0D0F00"
+"Green 50" = "#00A15E"
+"Green 40" = "#009955"
+"Green 30" = "#007E3B"
+"Green 20" = "#004014"
+"Green 10" = "#001600"
+"Yellow 60" = "#B7AA00"
+"Yellow 50" = "#A19600"
+"Yellow 40" = "#777800"
+"Yellow 30" = "#414F00"
+"Yellow 20" = "#1F3800"
+"Yellow 10" = "#001300"
+"Purple 20" = "#7B81CB"
+"Purple 10" = "#7267C7"
+
+"Blue" = "#00BFD5"
+"Blue Light" = "#36CDB4"
+"Coral" = "#8D7F61"
+"Cyan" = "#00CCA4"
+"Cyan Dark" = "#009976"
+"Lime" = "#3BC647"
+"Orange" = "#9E9B3D"
+"Pink" = "#9F98B3"
+"Violet" = "#599DD6"
+"Yellow" = "#A1C55B"
