@@ -20,6 +20,10 @@ mod status;
 
 pub use status::FileChange;
 
+pub mod git_cli;
+
+pub use git_cli::{Head, LogEntry, StatusEntry};
+
 /// Contains all active diff providers. Diff providers are compiled in via features. Currently
 /// only `git` is supported.
 #[derive(Clone)]

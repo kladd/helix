@@ -4,6 +4,7 @@ use std::{
     time::Duration,
 };
 
+use futures_util::future::BoxFuture;
 use helix_event::AsyncHook;
 use tokio::time::Instant;
 
@@ -186,5 +187,92 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> AsyncHook for DynamicQu
                 // injector falls out of scope here, clearing the "running" indicator.
             });
         })
+    }
+}
+
+pub(super) struct ContentRequest {
+    pub key: String,
+    pub language: &'static str,
+    pub content: Box<dyn FnOnce() -> BoxFuture<'static, anyhow::Result<String>> + Send + Sync>,
+}
+
+/// Fetches generated preview content (e.g. a `git diff`) off the UI thread,
+/// then stores the highlighted result in the picker's content cache.
+pub(super) struct ContentPreviewHandler<T: 'static + Send + Sync, D: 'static + Send + Sync> {
+    trigger: Option<ContentRequest>,
+    phantom_data: std::marker::PhantomData<(T, D)>,
+}
+
+impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Default for ContentPreviewHandler<T, D> {
+    fn default() -> Self {
+        Self {
+            trigger: None,
+            phantom_data: Default::default(),
+        }
+    }
+}
+
+impl<T: 'static + Send + Sync, D: 'static + Send + Sync> AsyncHook for ContentPreviewHandler<T, D> {
+    type Event = ContentRequest;
+
+    fn handle_event(&mut self, request: Self::Event, timeout: Option<Instant>) -> Option<Instant> {
+        if self
+            .trigger
+            .as_ref()
+            .is_some_and(|trigger| trigger.key == request.key)
+        {
+            // Same selection, keep the existing debounce.
+            timeout
+        } else {
+            self.trigger = Some(request);
+            Some(Instant::now() + Duration::from_millis(150))
+        }
+    }
+
+    fn finish_debounce(&mut self) {
+        let Some(ContentRequest {
+            key,
+            language,
+            content,
+        }) = self.trigger.take()
+        else {
+            return;
+        };
+
+        tokio::spawn(async move {
+            let result = content().await;
+
+            job::dispatch_blocking(move |editor, compositor| {
+                let Some(Overlay {
+                    content: picker, ..
+                }) = compositor.find::<Overlay<Picker<T, D>>>()
+                else {
+                    return;
+                };
+
+                // A failed fetch is shown as plain text so the git error is
+                // visible in the preview pane, with no syntax highlighting.
+                let (text, highlight) = match result {
+                    Ok(text) => (text, true),
+                    Err(err) => (err.to_string(), false),
+                };
+
+                let mut doc = helix_view::Document::from(
+                    helix_core::Rope::from(text.as_str()),
+                    None,
+                    editor.config.clone(),
+                    editor.syn_loader.clone(),
+                );
+                if highlight {
+                    let loader = editor.syn_loader.load();
+                    if let Err(err) = doc.set_language_by_language_id(language, &loader) {
+                        log::info!("content preview highlighting failed: {err}");
+                    }
+                }
+                picker
+                    .content_cache
+                    .insert(key, CachedPreview::Document(Box::new(doc)));
+            });
+        });
     }
 }

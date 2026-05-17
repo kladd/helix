@@ -10,7 +10,7 @@ use helix_stdx::{
     path::{self, find_paths},
     rope::{self, RopeSliceExt},
 };
-use helix_vcs::{FileChange, Hunk};
+use helix_vcs::{git_cli, FileChange, Hunk};
 pub use lsp::*;
 pub use syntax::*;
 use tui::{
@@ -79,6 +79,7 @@ use std::{
     future::Future,
     io::Read,
     num::NonZeroUsize,
+    sync::{Arc, Mutex},
 };
 
 use std::{
@@ -413,6 +414,9 @@ impl MappableCommand {
         syntax_symbol_picker, "Open symbol picker from syntax information",
         lsp_or_syntax_symbol_picker, "Open symbol picker from LSP or syntax information",
         changed_file_picker, "Open changed file picker",
+        git_branch, "Open git branch picker",
+        git_status, "Open git status picker",
+        git_log, "Open git log picker",
         select_references_to_symbol_under_cursor, "Select symbol references",
         workspace_symbol_picker, "Open workspace symbol picker",
         syntax_workspace_symbol_picker, "Open workspace symbol picker from syntax information",
@@ -3574,6 +3578,340 @@ fn changed_file_picker(cx: &mut Context) {
                 true
             }
         });
+    cx.push_layer(Box::new(overlaid(picker)));
+}
+
+fn git_branch(cx: &mut Context) {
+    struct BranchData {
+        // Set once HEAD is resolved. Read by the pinned-line renderer.
+        current: Arc<Mutex<Option<String>>>,
+        style: Style,
+    }
+
+    let cwd = helix_stdx::env::current_working_dir();
+    if !cwd.exists() {
+        cx.editor
+            .set_error("Current working directory does not exist");
+        return;
+    }
+
+    // Runs an async git operation, then reports the outcome to the editor.
+    fn run(
+        cx: &mut compositor::Context,
+        fut: impl Future<Output = anyhow::Result<String>> + Send + 'static,
+    ) {
+        cx.jobs.callback(async move {
+            let result = fut.await;
+            let call = move |editor: &mut Editor| match result {
+                Ok(msg) => editor.set_status(msg),
+                Err(err) => editor.set_error(err.to_string()),
+            };
+            Ok(job::Callback::Editor(Box::new(call)))
+        });
+    }
+
+    let columns = [PickerColumn::new(
+        "branch",
+        |name: &String, _: &BranchData| name.as_str().into(),
+    )];
+
+    let current = Arc::new(Mutex::new(None));
+    let switch_cwd = cwd.clone();
+    let picker = Picker::new(
+        columns,
+        0,
+        [],
+        BranchData {
+            current: current.clone(),
+            style: cx.editor.theme.get("ui.text.focus"),
+        },
+        move |cx, name: &String, _action| {
+            let cwd = switch_cwd.clone();
+            let name = name.clone();
+            run(cx, async move {
+                git_cli::switch(&cwd, &name).await?;
+                Ok(format!("Switched to branch '{name}'"))
+            });
+        },
+    )
+    .with_query_action({
+        let cwd = cwd.clone();
+        move |cx, query| {
+            let cwd = cwd.clone();
+            let name = query.to_string();
+            run(cx, async move {
+                git_cli::create_branch(&cwd, &name).await?;
+                Ok(format!("Created and switched to branch '{name}'"))
+            });
+        }
+    })
+    .with_pinned_line(|data: &BranchData| {
+        let current = data.current.lock().ok()?;
+        let name = current.as_ref()?;
+        Some(Spans::from(Span::styled(format!("● {name}"), data.style)))
+    });
+
+    let injector = picker.injector();
+    tokio::spawn(async move {
+        let branches = match git_cli::branches(&cwd).await {
+            Ok(branches) => branches,
+            Err(err) => {
+                status::report_blocking(err);
+                return;
+            }
+        };
+        // The current branch is shown as a pinned, non-selectable line and so
+        // is excluded from the list. A detached HEAD shows its short hash.
+        let (display, current_branch) = match git_cli::head(&cwd).await {
+            Ok(git_cli::Head::Branch(name)) => (Some(name.clone()), Some(name)),
+            Ok(git_cli::Head::Detached(hash)) => (Some(hash), None),
+            Err(_) => (None, None),
+        };
+        if let (Some(display), Ok(mut slot)) = (display, current.lock()) {
+            *slot = Some(display);
+        }
+        for name in branches {
+            if Some(&name) == current_branch.as_ref() {
+                continue;
+            }
+            if injector.push(name).is_err() {
+                break;
+            }
+        }
+    });
+
+    cx.push_layer(Box::new(overlaid(picker)));
+}
+
+fn git_status(cx: &mut Context) {
+    struct StatusData {
+        cwd: PathBuf,
+        added: Style,
+        modified: Style,
+        deleted: Style,
+        renamed: Style,
+        conflict: Style,
+    }
+
+    let cwd = helix_stdx::env::current_working_dir();
+    if !cwd.exists() {
+        cx.editor
+            .set_error("Current working directory does not exist");
+        return;
+    }
+
+    fn display_path(path: &Path, cwd: &Path) -> String {
+        path.strip_prefix(cwd).unwrap_or(path).display().to_string()
+    }
+
+    // Colours one character of the porcelain XY code by its meaning, so the
+    // staged (index) and unstaged (worktree) columns read like
+    // `git status -s --color`. A space stays unstyled.
+    fn code_style(code: u8, data: &StatusData) -> Style {
+        match code {
+            b'A' | b'C' | b'?' => data.added,
+            b'M' | b'T' => data.modified,
+            b'D' => data.deleted,
+            b'R' => data.renamed,
+            b'U' => data.conflict,
+            _ => Style::default(),
+        }
+    }
+
+    // Re-fetches the status list into the given injector, working from the
+    // repository root so porcelain paths resolve correctly.
+    fn stream_status(cwd: PathBuf, injector: ui::Injector<git_cli::StatusEntry, StatusData>) {
+        tokio::spawn(async move {
+            let root = match git_cli::repo_root(&cwd).await {
+                Ok(root) => root,
+                Err(err) => {
+                    status::report_blocking(err);
+                    return;
+                }
+            };
+            match git_cli::status(&root).await {
+                Ok(entries) => {
+                    for entry in entries {
+                        if injector.push(entry).is_err() {
+                            break;
+                        }
+                    }
+                }
+                Err(err) => status::report_blocking(err),
+            }
+        });
+    }
+
+    // A single column avoids the multi-column header row and reads like
+    // `git status -s`: the verbatim two-char code, then the path.
+    let columns = [PickerColumn::new(
+        "status",
+        |entry: &git_cli::StatusEntry, data: &StatusData| {
+            let path = match &entry.orig_path {
+                Some(orig) => format!(
+                    "{} -> {}",
+                    display_path(orig, &data.cwd),
+                    display_path(&entry.path, &data.cwd)
+                ),
+                None => display_path(&entry.path, &data.cwd),
+            };
+            Spans::from(vec![
+                Span::styled(
+                    (entry.xy[0] as char).to_string(),
+                    code_style(entry.xy[0], data),
+                ),
+                Span::styled(
+                    (entry.xy[1] as char).to_string(),
+                    code_style(entry.xy[1], data),
+                ),
+                Span::raw(format!(" {path}")),
+            ])
+            .into()
+        },
+    )];
+
+    let diff_cwd = cwd.clone();
+    let toggle_cwd = cwd.clone();
+    let picker =
+        Picker::new(
+            columns,
+            0,
+            [],
+            StatusData {
+                cwd: cwd.clone(),
+                added: cx.editor.theme.get("diff.plus"),
+                modified: cx.editor.theme.get("diff.delta"),
+                deleted: cx.editor.theme.get("diff.minus"),
+                renamed: cx.editor.theme.get("diff.delta.moved"),
+                conflict: cx.editor.theme.get("diff.delta.conflict"),
+            },
+            |_cx, _entry: &git_cli::StatusEntry, _action| {
+                // No open / commit / discard actions in this view.
+            },
+        )
+        .with_content_preview(move |entry: &git_cli::StatusEntry| {
+            let cwd = diff_cwd.clone();
+            let path = entry.path.clone();
+            let untracked = &entry.xy == b"??";
+            Some(ui::ContentPreview {
+                key: path.to_string_lossy().into_owned(),
+                language: "diff",
+                content: Box::new(move || -> ui::ContentFuture {
+                    Box::pin(async move {
+                        let root = git_cli::repo_root(&cwd).await?;
+                        if untracked {
+                            git_cli::untracked_diff(&root, &path).await
+                        } else {
+                            git_cli::file_diff(&root, &path).await
+                        }
+                    })
+                }),
+            })
+        })
+        .with_key_action(
+            "C-a".parse().unwrap(),
+            move |cx, entry: &git_cli::StatusEntry| {
+                let op_cwd = toggle_cwd.clone();
+                let refresh_cwd = toggle_cwd.clone();
+                let path = entry.path.clone();
+                let staged = entry.is_staged();
+                cx.jobs.callback(async move {
+                    let result: anyhow::Result<()> = async {
+                        let root = git_cli::repo_root(&op_cwd).await?;
+                        if staged {
+                            git_cli::unstage(&root, &path).await
+                        } else {
+                            git_cli::stage(&root, &path).await
+                        }
+                    }
+                    .await;
+                    Ok(job::Callback::EditorCompositor(Box::new(
+                        move |editor, compositor| {
+                            if let Err(err) = result {
+                                editor.set_error(err.to_string());
+                                return;
+                            }
+                            if let Some(crate::ui::overlay::Overlay {
+                                content: picker, ..
+                            }) = compositor.find::<crate::ui::overlay::Overlay<
+                                Picker<git_cli::StatusEntry, StatusData>,
+                            >>() {
+                                stream_status(refresh_cwd, picker.refresh());
+                            }
+                        },
+                    )))
+                });
+            },
+        );
+
+    stream_status(cwd, picker.injector());
+    cx.push_layer(Box::new(overlaid(picker)));
+}
+
+fn git_log(cx: &mut Context) {
+    let cwd = helix_stdx::env::current_working_dir();
+    if !cwd.exists() {
+        cx.editor
+            .set_error("Current working directory does not exist");
+        return;
+    }
+
+    // Single column reads like `git log --oneline` and avoids the
+    // multi-column header row.
+    let columns = [PickerColumn::new(
+        "log",
+        |entry: &git_cli::LogEntry, _: &()| format!("{} {}", entry.hash, entry.summary).into(),
+    )];
+
+    let diff_cwd = cwd.clone();
+    let picker = Picker::new(
+        columns,
+        0,
+        [],
+        (),
+        |_cx, _entry: &git_cli::LogEntry, _action| {
+            // Read-only: no commit-mutating actions.
+        },
+    )
+    .with_content_preview(move |entry: &git_cli::LogEntry| {
+        let cwd = diff_cwd.clone();
+        let hash = entry.hash.clone();
+        Some(ui::ContentPreview {
+            key: hash.clone(),
+            language: "diff",
+            content: Box::new(move || -> ui::ContentFuture {
+                Box::pin(async move {
+                    let root = git_cli::repo_root(&cwd).await?;
+                    git_cli::commit_diff(&root, &hash).await
+                })
+            }),
+        })
+    })
+    // Keep the hash and the start of the summary visible when the list is
+    // narrow, truncating the end of the message instead of the start.
+    .truncate_start(false);
+
+    let injector = picker.injector();
+    tokio::spawn(async move {
+        let root = match git_cli::repo_root(&cwd).await {
+            Ok(root) => root,
+            Err(err) => {
+                status::report_blocking(err);
+                return;
+            }
+        };
+        match git_cli::log(&root).await {
+            Ok(entries) => {
+                for entry in entries {
+                    if injector.push(entry).is_err() {
+                        break;
+                    }
+                }
+            }
+            Err(err) => status::report_blocking(err),
+        }
+    });
+
     cx.push_layer(Box::new(overlaid(picker)));
 }
 

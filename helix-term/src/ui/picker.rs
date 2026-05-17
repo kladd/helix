@@ -47,16 +47,22 @@ use helix_core::{
 use helix_view::{
     editor::Action,
     graphics::{CursorKind, Margin, Modifier, Rect},
+    input::KeyEvent,
     theme::Style,
     view::ViewPosition,
     Document, DocumentId, Editor,
 };
 
-use self::handlers::{DynamicQueryChange, DynamicQueryHandler, PreviewHighlightHandler};
+use self::handlers::{
+    ContentPreviewHandler, ContentRequest, DynamicQueryChange, DynamicQueryHandler,
+    PreviewHighlightHandler,
+};
 
 pub const ID: &str = "picker";
 
 pub const MIN_AREA_WIDTH_FOR_PREVIEW: u16 = 72;
+/// Minimum total height for a vertically split (stacked) preview.
+pub const MIN_AREA_HEIGHT_FOR_PREVIEW: u16 = 28;
 /// Biggest file size to preview in bytes
 pub const MAX_FILE_SIZE_FOR_PREVIEW: u64 = 10 * 1024 * 1024;
 
@@ -83,12 +89,35 @@ type FileCallback<T> = Box<dyn for<'a> Fn(&'a Editor, &'a T) -> Option<FileLocat
 /// File path and range of lines (used to align and highlight lines)
 pub type FileLocation<'a> = (PathOrId<'a>, Option<(usize, usize)>);
 
+pub type ContentFuture = BoxFuture<'static, anyhow::Result<String>>;
+
+/// A preview whose text is fetched off the UI thread, for pickers whose right
+/// pane shows generated content (e.g. a `git diff`) rather than a file.
+pub struct ContentPreview {
+    /// Stable cache key for this content (e.g. a commit hash or path).
+    pub key: String,
+    /// Language id used to syntax-highlight the content (e.g. `"diff"`).
+    pub language: &'static str,
+    /// Builds the future that produces the content. Boxed (rather than the
+    /// future itself) so the request stays `Sync` for the debounce hook. Run
+    /// once per key, away from the UI thread.
+    pub content: Box<dyn FnOnce() -> ContentFuture + Send + Sync>,
+}
+
+type ContentCallback<T> = Box<dyn Fn(&T) -> Option<ContentPreview>>;
+
+/// Renders a non-selectable line pinned above the list, from the picker's
+/// editor data. Used to show the current branch in the branch picker.
+type PinnedLineFn<D> = Box<dyn Fn(&D) -> Option<Spans<'static>>>;
+
 pub enum CachedPreview {
     Document(Box<Document>),
     Directory(Vec<(String, bool)>),
     Binary,
     LargeFile,
     NotFound,
+    /// Content preview whose text is still being produced off the UI thread.
+    Loading,
 }
 
 // We don't store this enum in the cache so as to avoid lifetime constraints
@@ -124,6 +153,7 @@ impl Preview<'_, '_> {
                 CachedPreview::Binary => "<Binary file>",
                 CachedPreview::LargeFile => "<File too large to preview>",
                 CachedPreview::NotFound => "<File not found>",
+                CachedPreview::Loading => "<Loading…>",
             },
         }
     }
@@ -269,6 +299,20 @@ pub struct Picker<T: 'static + Send + Sync, D: 'static> {
     /// An event handler for syntax highlighting the currently previewed file.
     preview_highlight_handler: Sender<Arc<Path>>,
     dynamic_query_handler: Option<Sender<DynamicQueryChange>>,
+    /// Invoked on Enter when nothing matches, with the current query. Lets a
+    /// picker act on free-form input (e.g. create a branch by typed name).
+    query_action: Option<Box<dyn Fn(&mut Context, &str)>>,
+    /// Resolves the selected item to generated preview content.
+    content_fn: Option<ContentCallback<T>>,
+    /// Caches content previews keyed by [`ContentPreview::key`].
+    content_cache: HashMap<String, CachedPreview>,
+    /// Fetches and highlights content previews off the UI thread.
+    content_handler: Sender<ContentRequest>,
+    /// Renders a pinned, non-selectable line above the list.
+    pinned_line_fn: Option<PinnedLineFn<D>>,
+    /// An extra key bound to an action on the selected item, without closing
+    /// the picker (used for the status stage/unstage toggle).
+    key_action: Option<(KeyEvent, Box<dyn Fn(&mut Context, &T)>)>,
 }
 
 impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
@@ -394,6 +438,12 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             file_fn: None,
             preview_highlight_handler: PreviewHighlightHandler::<T, D>::default().spawn(),
             dynamic_query_handler: None,
+            query_action: None,
+            content_fn: None,
+            content_cache: HashMap::new(),
+            content_handler: ContentPreviewHandler::<T, D>::default().spawn(),
+            pinned_line_fn: None,
+            key_action: None,
         }
     }
 
@@ -453,6 +503,86 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
     pub fn with_default_action(mut self, action: Action) -> Self {
         self.default_action = action;
         self
+    }
+
+    /// Sets an action run on Enter when the query matches no item. The action
+    /// receives the raw query text.
+    pub fn with_query_action(mut self, action: impl Fn(&mut Context, &str) + 'static) -> Self {
+        self.query_action = Some(Box::new(action));
+        self
+    }
+
+    /// Shows generated content in the preview pane instead of a file. The
+    /// closure maps the selected item to a cache key, a highlight language,
+    /// and a future that produces the text.
+    pub fn with_content_preview(
+        mut self,
+        content_fn: impl Fn(&T) -> Option<ContentPreview> + 'static,
+    ) -> Self {
+        self.content_fn = Some(Box::new(content_fn));
+        self
+    }
+
+    /// Renders a non-selectable line pinned above the list, built from the
+    /// picker's editor data.
+    pub fn with_pinned_line(
+        mut self,
+        pinned_line_fn: impl Fn(&D) -> Option<Spans<'static>> + 'static,
+    ) -> Self {
+        self.pinned_line_fn = Some(Box::new(pinned_line_fn));
+        self
+    }
+
+    /// Binds an extra key to an action on the selected item. The picker stays
+    /// open, so the action can mutate state the list reflects (e.g. staging).
+    pub fn with_key_action(
+        mut self,
+        key: KeyEvent,
+        action: impl Fn(&mut Context, &T) + 'static,
+    ) -> Self {
+        self.key_action = Some((key, Box::new(action)));
+        self
+    }
+
+    /// Cancels in-flight streaming, clears caches, and returns a fresh
+    /// injector so the list and previews can be rebuilt from scratch.
+    pub fn refresh(&mut self) -> Injector<T, D> {
+        self.version.fetch_add(1, atomic::Ordering::Relaxed);
+        self.matcher.restart(false);
+        self.preview_cache.clear();
+        self.content_cache.clear();
+        self.cursor = 0;
+        self.injector()
+    }
+
+    fn has_preview(&self) -> bool {
+        self.file_fn.is_some() || self.content_fn.is_some()
+    }
+
+    /// Splits `area` into the picker rect and an optional preview rect. A
+    /// portrait area stacks the preview below the list, a landscape area
+    /// places it to the right. Returns no preview rect when there is nothing
+    /// to preview or the area is too small to be useful.
+    fn preview_layout(&self, area: Rect) -> (Rect, Option<Rect>) {
+        if !(self.show_preview && self.has_preview()) {
+            return (area, None);
+        }
+        if area.height > area.width {
+            if area.height > MIN_AREA_HEIGHT_FOR_PREVIEW {
+                let picker_height = area.height / 2;
+                return (
+                    area.with_height(picker_height),
+                    Some(area.clip_top(picker_height)),
+                );
+            }
+        } else if area.width > MIN_AREA_WIDTH_FOR_PREVIEW {
+            let picker_width = area.width / 2;
+            return (
+                area.with_width(picker_width),
+                Some(area.clip_left(picker_width)),
+            );
+        }
+        (area, None)
     }
 
     /// Move the cursor by a number of lines, either down (`Forward`) or up (`Backward`)
@@ -587,6 +717,24 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         editor: &'editor Editor,
     ) -> Option<(Preview<'picker, 'editor>, Option<(usize, usize)>)> {
         let current = self.selection()?;
+
+        if let Some(preview) = self.content_fn.as_ref().and_then(|f| f(current)) {
+            let key = preview.key.clone();
+            if !self.content_cache.contains_key(&key) {
+                self.content_cache
+                    .insert(key.clone(), CachedPreview::Loading);
+                helix_event::send_blocking(
+                    &self.content_handler,
+                    ContentRequest {
+                        key: key.clone(),
+                        language: preview.language,
+                        content: preview.content,
+                    },
+                );
+            }
+            return Some((Preview::Cached(&self.content_cache[&key]), None));
+        }
+
         let (path_or_id, range) = (self.file_fn.as_ref()?)(editor, current)?;
 
         match path_or_id {
@@ -745,6 +893,19 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         // -- Render the contents:
         // subtract area of prompt from top
         let inner = inner.clip_top(2);
+        // A pinned, non-selectable line sits between the separator and the
+        // list (used to show the current branch).
+        let inner = match self
+            .pinned_line_fn
+            .as_ref()
+            .and_then(|f| f(self.editor_data.as_ref()))
+        {
+            Some(spans) => {
+                surface.set_spans(inner.x, inner.y, &spans, inner.width);
+                inner.clip_top(1)
+            }
+            None => inner,
+        };
         let rows = inner.height.saturating_sub(self.header_height()) as u32;
         let offset = self.cursor - (self.cursor % std::cmp::max(1, rows));
         let cursor = self.cursor.saturating_sub(offset);
@@ -1026,27 +1187,18 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
 
 impl<I: 'static + Send + Sync, D: 'static + Send + Sync> Component for Picker<I, D> {
     fn render(&mut self, area: Rect, surface: &mut Surface, cx: &mut Context) {
-        // +---------+ +---------+
-        // |prompt   | |preview  |
-        // +---------+ |         |
-        // |picker   | |         |
-        // |         | |         |
-        // +---------+ +---------+
+        // Landscape:            Portrait:
+        // +-------+ +-------+   +---------------+
+        // |prompt | |preview|   |prompt         |
+        // +-------+ |       |   |picker         |
+        // |picker | |       |   +---------------+
+        // +-------+ +-------+   |preview        |
+        //                       +---------------+
 
-        let render_preview =
-            self.show_preview && self.file_fn.is_some() && area.width > MIN_AREA_WIDTH_FOR_PREVIEW;
-
-        let picker_width = if render_preview {
-            area.width / 2
-        } else {
-            area.width
-        };
-
-        let picker_area = area.with_width(picker_width);
+        let (picker_area, preview_area) = self.preview_layout(area);
         self.render_picker(picker_area, surface, cx);
 
-        if render_preview {
-            let preview_area = area.clip_left(picker_width);
+        if let Some(preview_area) = preview_area {
             self.render_preview(preview_area, surface, cx);
         }
     }
@@ -1060,6 +1212,15 @@ impl<I: 'static + Send + Sync, D: 'static + Send + Sync> Component for Picker<I,
             Event::Resize(..) => return EventResult::Consumed(None),
             _ => return EventResult::Ignored(None),
         };
+
+        if let Some((key, action)) = self.key_action.as_ref() {
+            if key_event == *key {
+                if let Some(option) = self.selection() {
+                    action(ctx, option);
+                }
+                return EventResult::Consumed(None);
+            }
+        }
 
         let close_fn = |picker: &mut Self| {
             // if the picker is very large don't store it as last_picker to avoid
@@ -1131,6 +1292,11 @@ impl<I: 'static + Send + Sync, D: 'static + Send + Sync> Component for Picker<I,
                 } else {
                     if let Some(option) = self.selection() {
                         (self.callback_fn)(ctx, option, self.default_action);
+                    } else if let Some(query_action) = self.query_action.as_ref() {
+                        let query = self.primary_query();
+                        if !query.is_empty() {
+                            query_action(ctx, &query);
+                        }
                     }
                     if let Some(history_register) = self.prompt.history_register() {
                         if let Err(err) = ctx
@@ -1168,20 +1334,10 @@ impl<I: 'static + Send + Sync, D: 'static + Send + Sync> Component for Picker<I,
     }
 
     fn cursor(&self, area: Rect, editor: &Editor) -> (Option<Position>, CursorKind) {
-        let block = Block::bordered();
-        // calculate the inner area inside the box
-        let inner = block.inner(area);
-
-        // prompt area
-        let render_preview =
-            self.show_preview && self.file_fn.is_some() && area.width > MIN_AREA_WIDTH_FOR_PREVIEW;
-
-        let picker_width = if render_preview {
-            area.width / 2
-        } else {
-            area.width
-        };
-        let area = inner.clip_left(1).with_height(1).with_width(picker_width);
+        let (picker_area, _) = self.preview_layout(area);
+        // The prompt sits on the first line inside the picker block.
+        let inner = Block::bordered().inner(picker_area);
+        let area = inner.clip_left(1).with_height(1);
 
         self.prompt.cursor(area, editor)
     }
