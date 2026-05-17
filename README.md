@@ -1,22 +1,29 @@
-# Helix with things I like from Vim
+# Helix with things upstream doesn't want
 
-## Visual-line mode
+## Vi mode
+
+```toml
+[editor]
+vim_mode = true
+```
+
+### Visual-line mode
 
 Shift-V enters line-wise selection mode.
 
-## Action-selection commands
+### Action-selection commands
 
 Delete with `daw`, `diw`, `dt<char>`, etc. Yank with `yaw`, `yiw`, `yt<char>`,
 etc.
 
-## Ex commands
+### Ex commands
 
 One cursor.
 
 * `:'<,'>s/find/replace`
 * `:%!python -m json.tool`
 
-## Misc.
+### Misc.
 
 * Find to/through character does not select unless in visual mode.
 * Exiting visual modes clears selection.

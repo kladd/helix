@@ -15,7 +15,11 @@ pub fn space_keymap() -> KeyTrie {
         "S" => lsp_or_syntax_workspace_symbol_picker,
         "d" => diagnostics_picker,
         "D" => workspace_diagnostics_picker,
-        "g" => changed_file_picker,
+        "g" => { "Git"
+            "s" => git_status,
+            "l" => git_log,
+            "b" => git_branch,
+        },
         "a" => code_action,
         "'" => last_picker,
         "G" => { "Debug (experimental)" sticky=true
