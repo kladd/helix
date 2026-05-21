@@ -3686,10 +3686,8 @@ fn git_branch(cx: &mut Context) {
 fn git_status(cx: &mut Context) {
     struct StatusData {
         cwd: PathBuf,
-        added: Style,
-        modified: Style,
-        deleted: Style,
-        renamed: Style,
+        staged: Style,
+        unstaged: Style,
         conflict: Style,
     }
 
@@ -3704,17 +3702,18 @@ fn git_status(cx: &mut Context) {
         path.strip_prefix(cwd).unwrap_or(path).display().to_string()
     }
 
-    // Colours one character of the porcelain XY code by its meaning, so the
-    // staged (index) and unstaged (worktree) columns read like
-    // `git status -s --color`. A space stays unstyled.
-    fn code_style(code: u8, data: &StatusData) -> Style {
+    // Colours one character of the porcelain XY code by its column, so the
+    // index (X) reads green and the worktree (Y) reads red, like `git status
+    // --color`. Conflicts get their own style; spaces stay unstyled. The `?`
+    // of an untracked entry is shown as staged-style since it represents a
+    // new path that's "ready to add".
+    fn code_style(code: u8, column: usize, data: &StatusData) -> Style {
         match code {
-            b'A' | b'C' | b'?' => data.added,
-            b'M' | b'T' => data.modified,
-            b'D' => data.deleted,
-            b'R' => data.renamed,
+            b' ' => Style::default(),
             b'U' => data.conflict,
-            _ => Style::default(),
+            b'?' => data.staged,
+            _ if column == 0 => data.staged,
+            _ => data.unstaged,
         }
     }
 
@@ -3758,11 +3757,11 @@ fn git_status(cx: &mut Context) {
             Spans::from(vec![
                 Span::styled(
                     (entry.xy[0] as char).to_string(),
-                    code_style(entry.xy[0], data),
+                    code_style(entry.xy[0], 0, data),
                 ),
                 Span::styled(
                     (entry.xy[1] as char).to_string(),
-                    code_style(entry.xy[1], data),
+                    code_style(entry.xy[1], 1, data),
                 ),
                 Span::raw(format!(" {path}")),
             ])
@@ -3779,10 +3778,8 @@ fn git_status(cx: &mut Context) {
             [],
             StatusData {
                 cwd: cwd.clone(),
-                added: cx.editor.theme.get("diff.plus"),
-                modified: cx.editor.theme.get("diff.delta"),
-                deleted: cx.editor.theme.get("diff.minus"),
-                renamed: cx.editor.theme.get("diff.delta.moved"),
+                staged: cx.editor.theme.get("diff.plus"),
+                unstaged: cx.editor.theme.get("diff.minus"),
                 conflict: cx.editor.theme.get("diff.delta.conflict"),
             },
             |_cx, _entry: &git_cli::StatusEntry, _action| {

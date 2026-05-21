@@ -313,6 +313,14 @@ pub struct Picker<T: 'static + Send + Sync, D: 'static> {
     /// An extra key bound to an action on the selected item, without closing
     /// the picker (used for the status stage/unstage toggle).
     key_action: Option<(KeyEvent, Box<dyn Fn(&mut Context, &T)>)>,
+    /// When true, navigation keys scroll the preview pane instead of moving
+    /// the list cursor. Only togglable on pickers that have a content preview
+    /// (Right to focus, Left/Esc to return), so the file picker's prompt
+    /// keeps Left/Right for text navigation.
+    preview_focused: bool,
+    /// Line offset into the content preview when [`preview_focused`] is on.
+    /// Reset whenever the selection or content changes.
+    preview_scroll: usize,
 }
 
 impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
@@ -444,6 +452,8 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             content_handler: ContentPreviewHandler::<T, D>::default().spawn(),
             pinned_line_fn: None,
             key_action: None,
+            preview_focused: false,
+            preview_scroll: 0,
         }
     }
 
@@ -545,13 +555,17 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
     }
 
     /// Cancels in-flight streaming, clears caches, and returns a fresh
-    /// injector so the list and previews can be rebuilt from scratch.
+    /// injector so the list and previews can be rebuilt from scratch. The
+    /// cursor is left where it was — callers that re-inject a stably-ordered
+    /// list (e.g. the git status picker) want the same row to stay selected
+    /// across a refresh. Preview scroll resets, since the underlying content
+    /// likely changed.
     pub fn refresh(&mut self) -> Injector<T, D> {
         self.version.fetch_add(1, atomic::Ordering::Relaxed);
         self.matcher.restart(false);
         self.preview_cache.clear();
         self.content_cache.clear();
-        self.cursor = 0;
+        self.preview_scroll = 0;
         self.injector()
     }
 
@@ -602,6 +616,9 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
                 self.cursor = self.cursor.saturating_add(len).saturating_sub(amount) % len;
             }
         }
+        // New selection -> reset any preview scroll so we don't land deep
+        // inside the next item's diff.
+        self.preview_scroll = 0;
     }
 
     /// Move the cursor down by exactly one page. After the last page comes the first page.
@@ -617,6 +634,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
     /// Move the cursor to the first entry
     pub fn to_start(&mut self) {
         self.cursor = 0;
+        self.preview_scroll = 0;
     }
 
     /// Move the cursor to the last entry
@@ -626,6 +644,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             .snapshot()
             .matched_item_count()
             .saturating_sub(1);
+        self.preview_scroll = 0;
     }
 
     pub fn selection(&self) -> Option<&T> {
@@ -670,6 +689,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         }
         // If the query has meaningfully changed, reset the cursor to the top of the results.
         self.cursor = 0;
+        self.preview_scroll = 0;
         // Have nucleo reparse each changed column.
         for (i, column) in self
             .columns
@@ -833,9 +853,14 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         let status = self.matcher.tick(10);
         let snapshot = self.matcher.snapshot();
         if status.changed {
-            self.cursor = self
-                .cursor
-                .min(snapshot.matched_item_count().saturating_sub(1))
+            // Only clamp when there's something to clamp against — a refresh
+            // restarts the matcher and briefly reports 0 items, and we don't
+            // want that transient window to drag the cursor to 0 and leave it
+            // there once the list repopulates.
+            let count = snapshot.matched_item_count();
+            if count > 0 {
+                self.cursor = self.cursor.min(count - 1);
+            }
         }
 
         let text_style = cx.editor.theme.get("ui.text");
@@ -1049,14 +1074,26 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         let directory = cx.editor.theme.get("ui.text.directory");
         surface.clear_with(area, background);
 
-        const BLOCK: Block<'_> = Block::bordered();
+        // Highlight the border when the preview is focused so it's obvious
+        // which pane will receive scroll keys.
+        let block = if self.preview_focused {
+            Block::bordered().border_style(cx.editor.theme.get("ui.selection"))
+        } else {
+            Block::bordered()
+        };
 
         // calculate the inner area inside the box
-        let inner = BLOCK.inner(area);
+        let inner = block.inner(area);
         // 1 column gap on either side
         let margin = Margin::horizontal(1);
         let inner = inner.inner(margin);
-        BLOCK.render(area, surface);
+        block.render(area, surface);
+
+        // `get_preview` mutably borrows self, so we can't touch
+        // `self.preview_scroll` while the preview is alive. Stage the
+        // clamped value in a local and write it back after the borrow ends.
+        let desired_scroll = self.preview_scroll;
+        let mut clamped_scroll = desired_scroll;
 
         if let Some((preview, range)) = self.get_preview(cx.editor) {
             let doc = match preview.document() {
@@ -1093,6 +1130,15 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             };
 
             let mut offset = ViewPosition::default();
+            // Clamp the desired scroll to what's actually scrollable so the
+            // `End` keypress (which sets `usize::MAX`) lands at the last
+            // page rather than off the end.
+            let max_line = doc.text().len_lines().saturating_sub(1);
+            let max_scroll = max_line.saturating_sub(inner.height.saturating_sub(1) as usize);
+            clamped_scroll = desired_scroll.min(max_scroll);
+            if clamped_scroll > 0 {
+                offset.anchor = doc.text().line_to_char(clamped_scroll);
+            }
             if let Some((start_line, end_line)) = range {
                 let height = end_line - start_line;
                 let text = doc.text().slice(..);
@@ -1182,6 +1228,8 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
                 decorations,
             );
         }
+
+        self.preview_scroll = clamped_scroll;
     }
 }
 
@@ -1204,14 +1252,57 @@ impl<I: 'static + Send + Sync, D: 'static + Send + Sync> Component for Picker<I,
     }
 
     fn handle_event(&mut self, event: &Event, ctx: &mut Context) -> EventResult {
-        // TODO: keybinds for scrolling preview
-
         let key_event = match event {
             Event::Key(event) => *event,
             Event::Paste(..) => return self.prompt_handle_event(event, ctx),
             Event::Resize(..) => return EventResult::Consumed(None),
             _ => return EventResult::Ignored(None),
         };
+
+        // Right/Left toggle focus into the preview pane for content-preview
+        // pickers (git status, git log). File pickers use Left/Right for
+        // prompt text navigation, so we only intercept when there's actually
+        // something to scroll.
+        let preview_scrollable = self.show_preview && self.content_fn.is_some();
+        if preview_scrollable {
+            match key_event {
+                key!(Right) if !self.preview_focused => {
+                    self.preview_focused = true;
+                    return EventResult::Consumed(None);
+                }
+                key!(Left) | key!(Esc) if self.preview_focused => {
+                    self.preview_focused = false;
+                    return EventResult::Consumed(None);
+                }
+                _ => {}
+            }
+        }
+
+        if self.preview_focused {
+            match key_event {
+                key!(Up) | ctrl!('p') | key!('k') => {
+                    self.preview_scroll = self.preview_scroll.saturating_sub(1)
+                }
+                key!(Down) | ctrl!('n') | key!('j') => {
+                    self.preview_scroll = self.preview_scroll.saturating_add(1)
+                }
+                key!(PageUp) | ctrl!('u') | ctrl!('b') => {
+                    let step = self.completion_height.max(1) as usize;
+                    self.preview_scroll = self.preview_scroll.saturating_sub(step);
+                }
+                key!(PageDown) | ctrl!('d') | ctrl!('f') => {
+                    let step = self.completion_height.max(1) as usize;
+                    self.preview_scroll = self.preview_scroll.saturating_add(step);
+                }
+                key!(Home) | key!('g') => self.preview_scroll = 0,
+                // Match both `Char('G') + SHIFT` (kitty-style) and `Char('G')
+                // + NONE` (legacy fold-into-uppercase); the picker doesn't go
+                // through `canonicalize_key`.
+                key!(End) | key!('G') | shift!('G') => self.preview_scroll = usize::MAX,
+                _ => {}
+            }
+            return EventResult::Consumed(None);
+        }
 
         if let Some((key, action)) = self.key_action.as_ref() {
             if key_event == *key {
