@@ -171,6 +171,8 @@ pub struct Document {
     ///
     /// To know if they're up-to-date, check the `id` field in `DocumentInlayHints`.
     pub(crate) inlay_hints: HashMap<ViewId, DocumentInlayHints>,
+    /// Inline git blame annotations, by view.
+    pub(crate) git_blame: HashMap<ViewId, DocumentGitBlame>,
     /// Jump label overlays for each view.
     pub(crate) jump_labels: HashMap<ViewId, Vec<Overlay>>,
     /// LSP document highlights for each view, stored as char ranges.
@@ -322,6 +324,16 @@ impl DocumentInlayHints {
             padding_after_inlay_hints: Vec::new(),
         }
     }
+}
+
+/// Inline git blame annotations for a single view.
+#[derive(Debug, Clone, Default)]
+pub struct DocumentGitBlame {
+    /// Annotations positioned at end-of-line for each blamed line.
+    pub annotations: Vec<InlineAnnotation>,
+    /// The document-line range `[first, last]` that was blamed.
+    pub first_line: usize,
+    pub last_line: usize,
 }
 
 /// Associated with a [`Document`] and [`ViewId`], uniquely identifies the state of inlay hints for
@@ -754,6 +766,7 @@ impl Document {
             selections: HashMap::default(),
             inlay_hints: HashMap::default(),
             inlay_hints_oudated: false,
+            git_blame: HashMap::default(),
             view_data: Default::default(),
             indent_style: DEFAULT_INDENT,
             editor_config: EditorConfig::default(),
@@ -1447,6 +1460,7 @@ impl Document {
     pub fn remove_view(&mut self, view_id: ViewId) {
         self.selections.remove(&view_id);
         self.inlay_hints.remove(&view_id);
+        self.git_blame.remove(&view_id);
         self.jump_labels.remove(&view_id);
         self.document_highlights.remove(&view_id);
         self.document_highlight_controllers.remove(&view_id);
@@ -2432,6 +2446,18 @@ impl Document {
     /// (since it often means inlay hints have been fully deactivated).
     pub fn reset_all_inlay_hints(&mut self) {
         self.inlay_hints = Default::default();
+    }
+
+    pub fn set_git_blame(&mut self, view_id: ViewId, blame: DocumentGitBlame) {
+        self.git_blame.insert(view_id, blame);
+    }
+
+    pub fn git_blame(&self, view_id: ViewId) -> Option<&DocumentGitBlame> {
+        self.git_blame.get(&view_id)
+    }
+
+    pub fn reset_all_git_blame(&mut self) {
+        self.git_blame = Default::default();
     }
 
     pub fn has_language_server_with_feature(&self, feature: LanguageServerFeature) -> bool {

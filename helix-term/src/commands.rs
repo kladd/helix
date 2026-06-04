@@ -38,14 +38,14 @@ use helix_core::{
     search::{self},
     selection, surround,
     syntax::config::{BlockCommentToken, LanguageServerFeature},
-    text_annotations::{Overlay, TextAnnotations},
+    text_annotations::{InlineAnnotation, Overlay, TextAnnotations},
     textobject,
     unicode::width::UnicodeWidthChar,
     visual_offset_from_block, Deletion, LineEnding, Position, Range, Rope, RopeReader, RopeSlice,
     Selection, SmallVec, Syntax, Tendril, Transaction,
 };
 use helix_view::{
-    document::{FormatterError, Mode, SCRATCH_BUFFER_NAME},
+    document::{DocumentGitBlame, FormatterError, Mode, SCRATCH_BUFFER_NAME},
     editor::{Action, Motion, VimOperator},
     expansion,
     info::Info,
@@ -417,6 +417,7 @@ impl MappableCommand {
         git_branch, "Open git branch picker",
         git_status, "Open git status picker",
         git_log, "Open git log picker",
+        toggle_git_blame_inline, "Toggle inline git blame annotations",
         select_references_to_symbol_under_cursor, "Select symbol references",
         workspace_symbol_picker, "Open workspace symbol picker",
         syntax_workspace_symbol_picker, "Open workspace symbol picker from syntax information",
@@ -3809,31 +3810,43 @@ fn git_status(cx: &mut Context) {
             "C-a".parse().unwrap(),
             move |cx, entry: &git_cli::StatusEntry| {
                 let op_cwd = toggle_cwd.clone();
-                let refresh_cwd = toggle_cwd.clone();
                 let path = entry.path.clone();
                 let staged = entry.is_staged();
                 cx.jobs.callback(async move {
-                    let result: anyhow::Result<()> = async {
+                    // Stage/unstage and immediately re-fetch the full status
+                    // list in the same job, so the callback has all entries
+                    // ready and can re-inject them in one frame — no separate
+                    // async task means no empty-list flash between clear and refill.
+                    let result: anyhow::Result<Vec<git_cli::StatusEntry>> = async {
                         let root = git_cli::repo_root(&op_cwd).await?;
                         if staged {
-                            git_cli::unstage(&root, &path).await
+                            git_cli::unstage(&root, &path).await?;
                         } else {
-                            git_cli::stage(&root, &path).await
+                            git_cli::stage(&root, &path).await?;
                         }
+                        git_cli::status(&root).await
                     }
                     .await;
                     Ok(job::Callback::EditorCompositor(Box::new(
                         move |editor, compositor| {
-                            if let Err(err) = result {
-                                editor.set_error(err.to_string());
-                                return;
-                            }
+                            let entries = match result {
+                                Err(err) => {
+                                    editor.set_error(err.to_string());
+                                    return;
+                                }
+                                Ok(entries) => entries,
+                            };
                             if let Some(crate::ui::overlay::Overlay {
                                 content: picker, ..
                             }) = compositor.find::<crate::ui::overlay::Overlay<
                                 Picker<git_cli::StatusEntry, StatusData>,
                             >>() {
-                                stream_status(refresh_cwd, picker.refresh());
+                                let injector = picker.refresh();
+                                for entry in entries {
+                                    if injector.push(entry).is_err() {
+                                        break;
+                                    }
+                                }
                             }
                         },
                     )))
@@ -3910,6 +3923,152 @@ fn git_log(cx: &mut Context) {
     });
 
     cx.push_layer(Box::new(overlaid(picker)));
+}
+
+fn relative_time(now_secs: i64, then_secs: i64) -> String {
+    let diff = now_secs.saturating_sub(then_secs).max(0) as u64;
+    if diff < 60 {
+        "just now".to_string()
+    } else if diff < 3600 {
+        format!("{} min ago", diff / 60)
+    } else if diff < 86400 {
+        format!("{} hr ago", diff / 3600)
+    } else if diff < 2_592_000 {
+        format!("{} days ago", diff / 86400)
+    } else if diff < 31_536_000 {
+        format!("{} mo ago", diff / 2_592_000)
+    } else {
+        format!("{} yr ago", diff / 31_536_000)
+    }
+}
+
+fn toggle_git_blame_inline(cx: &mut Context) {
+    let mut config = cx.editor.config().clone();
+    config.git_blame_inline = !config.git_blame_inline;
+    let enabled = config.git_blame_inline;
+    cx.editor
+        .config_events
+        .0
+        .send(helix_view::editor::ConfigEvent::Update(Box::new(config)))
+        .ok();
+    if enabled {
+        // Don't wait for idle — kick off computation right now.
+        compute_git_blame_for_views(cx.editor, cx.jobs);
+    } else {
+        for doc in cx.editor.documents_mut() {
+            doc.reset_all_git_blame();
+        }
+    }
+    cx.editor.set_status(if enabled {
+        "Git blame inline: on"
+    } else {
+        "Git blame inline: off"
+    });
+}
+
+pub fn compute_git_blame_for_all_views(editor: &mut Editor, jobs: &mut Jobs) {
+    if !editor.config().git_blame_inline {
+        return;
+    }
+    compute_git_blame_for_views(editor, jobs);
+}
+
+fn compute_git_blame_for_views(editor: &mut Editor, jobs: &mut Jobs) {
+    for (view, _) in editor.tree.views() {
+        let doc = match editor.documents.get(&view.doc) {
+            Some(d) => d,
+            None => continue,
+        };
+        if let Some(cb) = compute_git_blame_for_view(view, doc) {
+            jobs.callback(cb);
+        }
+    }
+}
+
+fn compute_git_blame_for_view(
+    view: &helix_view::view::View,
+    doc: &helix_view::Document,
+) -> Option<std::pin::Pin<Box<impl Future<Output = Result<Callback, anyhow::Error>>>>> {
+    let doc_id = view.doc;
+    let view_id = view.id;
+
+    let path = doc.path()?.to_path_buf();
+    let cwd = path.parent()?.to_path_buf();
+
+    let doc_text = doc.text();
+    let len_lines = doc_text.len_lines();
+    if len_lines == 0 {
+        return None;
+    }
+
+    let first_visible_line =
+        doc_text.char_to_line(doc.view_offset(view_id).anchor.min(doc_text.len_chars()));
+    let view_height = view.inner_height();
+    let first_line = first_visible_line.saturating_sub(view_height);
+    let last_line = first_visible_line
+        .saturating_add(view_height.saturating_mul(2))
+        .min(len_lines.saturating_sub(1));
+
+    // Skip recompute if the range hasn't changed.
+    if let Some(existing) = doc.git_blame(view_id) {
+        if existing.first_line == first_line && existing.last_line == last_line {
+            return None;
+        }
+    }
+
+    let now_secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs() as i64;
+
+    // Snapshot char positions before the async block so we don't borrow `doc`.
+    let line_end_positions: Vec<usize> = (first_line..=last_line)
+        .map(|line| {
+            if line + 1 < len_lines {
+                doc_text.line_to_char(line + 1).saturating_sub(1)
+            } else {
+                doc_text.len_chars()
+            }
+        })
+        .collect();
+
+    let fut = async move {
+        let entries = git_cli::blame(&cwd, &path, first_line, last_line).await?;
+        let annotations: Vec<InlineAnnotation> = entries
+            .iter()
+            .zip(line_end_positions.iter())
+            .map(|(entry, &char_idx)| {
+                let rel = relative_time(now_secs, entry.time);
+                let author = if entry.author.len() > 20 {
+                    &entry.author[..20]
+                } else {
+                    &entry.author
+                };
+                let text = format!("  ● {} {}, {}", entry.short_hash, author, rel);
+                InlineAnnotation::new(char_idx, text)
+            })
+            .collect();
+
+        let blame = DocumentGitBlame {
+            annotations,
+            first_line,
+            last_line,
+        };
+
+        let call: Callback = Callback::Editor(Box::new(move |editor| {
+            if let Some(doc) = editor.documents.get_mut(&doc_id) {
+                // Only cache when we have real data — empty means git blame
+                // failed (untracked/new file), and we don't want to skip
+                // retrying on the next idle tick.
+                if !blame.annotations.is_empty() {
+                    doc.set_git_blame(view_id, blame);
+                }
+            }
+        }));
+        Ok(call)
+    };
+
+    Some(Box::pin(fut))
 }
 
 pub fn command_palette(cx: &mut Context) {

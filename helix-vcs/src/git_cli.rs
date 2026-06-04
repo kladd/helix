@@ -247,3 +247,84 @@ pub async fn create_branch(cwd: &Path, name: &str) -> Result<()> {
     run(cwd, &["switch", "-c", name]).await?;
     Ok(())
 }
+
+/// One entry from `git blame --porcelain` — one per document line.
+#[derive(Debug, Clone)]
+pub struct BlameEntry {
+    pub short_hash: String,
+    pub author: String,
+    /// Unix timestamp of the author date.
+    pub time: i64,
+}
+
+/// Run `git blame --porcelain` for `path` over lines `[first_line, last_line]`
+/// (0-indexed).  Returns one entry per line in the requested range.
+/// Returns an empty vec for untracked files, new repos, or any git error.
+pub async fn blame(
+    cwd: &Path,
+    path: &Path,
+    first_line: usize,
+    last_line: usize,
+) -> Result<Vec<BlameEntry>> {
+    if !has_commits(cwd).await {
+        return Ok(Vec::new());
+    }
+    let p = path.to_string_lossy();
+    let range = format!("{},{}", first_line + 1, last_line + 1);
+    let out = match run(cwd, &["blame", "--porcelain", "-L", &range, "--", &p]).await {
+        Ok(o) => o,
+        Err(_) => return Ok(Vec::new()),
+    };
+    Ok(parse_blame(&out))
+}
+
+fn parse_blame(out: &[u8]) -> Vec<BlameEntry> {
+    let text = String::from_utf8_lossy(out);
+    let mut entries = Vec::new();
+    let mut cache: std::collections::HashMap<String, (String, i64)> = std::collections::HashMap::new();
+
+    let mut cur_hash = String::new();
+    let mut cur_author: Option<String> = None;
+    let mut cur_time: Option<i64> = None;
+
+    for line in text.lines() {
+        if line.starts_with('\t') {
+            if cur_hash.is_empty() {
+                continue;
+            }
+            let (author, time) = if let Some(cached) = cache.get(&cur_hash) {
+                cached.clone()
+            } else if let (Some(a), Some(t)) = (cur_author.take(), cur_time.take()) {
+                cache.insert(cur_hash.clone(), (a.clone(), t));
+                (a, t)
+            } else {
+                continue;
+            };
+            entries.push(BlameEntry {
+                short_hash: cur_hash[..7.min(cur_hash.len())].to_string(),
+                author,
+                time,
+            });
+            cur_author = None;
+            cur_time = None;
+        } else if let Some(a) = line.strip_prefix("author ") {
+            cur_author = Some(a.to_string());
+        } else if let Some(t) = line.strip_prefix("author-time ") {
+            cur_time = t.trim().parse().ok();
+        } else {
+            let bytes = line.as_bytes();
+            if bytes.len() > 40 && bytes[40] == b' ' && bytes[..40].iter().all(|b| b.is_ascii_hexdigit()) {
+                cur_hash = line[..40].to_string();
+                if let Some((a, t)) = cache.get(&cur_hash) {
+                    cur_author = Some(a.clone());
+                    cur_time = Some(*t);
+                } else {
+                    cur_author = None;
+                    cur_time = None;
+                }
+            }
+        }
+    }
+
+    entries
+}

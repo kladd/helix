@@ -19,6 +19,7 @@ pub fn space_keymap() -> KeyTrie {
             "s" => git_status,
             "l" => git_log,
             "b" => git_branch,
+            "B" => toggle_git_blame_inline,
         },
         "a" => code_action,
         "'" => last_picker,

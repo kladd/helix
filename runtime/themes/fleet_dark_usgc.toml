@@ -95,6 +95,7 @@
 
 "ui.virtual" = "Gray 90" # .whitespace
 "ui.virtual.inlay-hint" = { fg = "Gray 70" }
+"ui.virtual.git-blame" = { fg = "Gray 30", modifiers = ["dim"] }
 "ui.virtual.ruler" = { bg = "Gray 20" }
 
 "hint" = "Gray 80"

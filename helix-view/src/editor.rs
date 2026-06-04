@@ -436,6 +436,8 @@ pub struct Config {
     pub insecure: bool,
     /// Enable vim emulation mode. Defaults to false.
     pub vim_mode: bool,
+    /// Show git blame annotations inline at end of each line. Defaults to false.
+    pub git_blame_inline: bool,
 }
 
 #[derive(Debug, Default, PartialEq, Eq, PartialOrd, Ord, Deserialize, Serialize, Clone, Copy)]
@@ -1180,6 +1182,7 @@ impl Default for Config {
             buffer_picker: BufferPickerConfig::default(),
             insecure: false,
             vim_mode: false,
+            git_blame_inline: false,
         }
     }
 }

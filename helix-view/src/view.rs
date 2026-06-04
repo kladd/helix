@@ -1,7 +1,7 @@
 use crate::{
     align_view,
     annotations::diagnostics::InlineDiagnostics,
-    document::{DocumentColorSwatches, DocumentInlayHints},
+    document::{DocumentColorSwatches, DocumentGitBlame, DocumentInlayHints},
     editor::{GutterConfig, GutterType},
     graphics::Rect,
     handlers::diagnostics::DiagnosticsHandler,
@@ -491,6 +491,13 @@ impl View {
                 }
 
                 text_annotations.add_inline_annotations(color_swatches_padding, None);
+            }
+        }
+
+        if config.git_blame_inline {
+            if let Some(DocumentGitBlame { annotations, .. }) = doc.git_blame(self.id) {
+                let style = theme.and_then(|t| t.find_highlight("ui.virtual.git-blame"));
+                text_annotations.add_inline_annotations(annotations, style);
             }
         }
 

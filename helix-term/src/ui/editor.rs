@@ -1474,6 +1474,7 @@ impl EditorView {
 
     pub fn handle_idle_timeout(&mut self, cx: &mut commands::Context) -> EventResult {
         commands::compute_inlay_hints_for_all_views(cx.editor, cx.jobs);
+        commands::compute_git_blame_for_all_views(cx.editor, cx.jobs);
 
         EventResult::Ignored(None)
     }
