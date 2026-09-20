@@ -3175,6 +3175,7 @@ fn substitute_impl(
         replacement.contains('$') || replacement.contains('&') || replacement.contains('\\');
 
     for (byte_start, byte_end) in &search_ranges {
+        let mut last_line = None;
         if has_captures {
             // Use captures for group references in replacement
             let input = text.regex_input_at_bytes(*byte_start..*byte_end);
@@ -3187,6 +3188,14 @@ fn substitute_impl(
                     continue;
                 }
 
+                if !global {
+                    let line = text.byte_to_line(match_start);
+                    if last_line == Some(line) {
+                        continue;
+                    }
+                    last_line = Some(line);
+                }
+
                 let get_group = |group: usize| -> Option<String> {
                     cap.get_group(group)
                         .map(|m| text.byte_slice(m.range()).chunks().collect::<String>())
@@ -3195,10 +3204,6 @@ fn substitute_impl(
                 let char_start = text.byte_to_char(match_start);
                 let char_end = text.byte_to_char(match_end);
                 changes.push((char_start, char_end, Some(rep.into())));
-
-                if !global {
-                    break;
-                }
             }
         } else {
             // Simple literal replacement — use find_iter (faster)
@@ -3210,13 +3215,17 @@ fn substitute_impl(
                     continue;
                 }
 
+                if !global {
+                    let line = text.byte_to_line(match_start);
+                    if last_line == Some(line) {
+                        continue;
+                    }
+                    last_line = Some(line);
+                }
+
                 let char_start = text.byte_to_char(match_start);
                 let char_end = text.byte_to_char(match_end);
                 changes.push((char_start, char_end, Some(replacement.clone().into())));
-
-                if !global {
-                    break;
-                }
             }
         }
     }
