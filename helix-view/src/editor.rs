@@ -445,8 +445,7 @@ pub struct WorkspaceTrustConfig {
     /// What to trust implicitly without an explicit grant. See [`ImplicitTrustLevelConfig`].
     pub level: ImplicitTrustLevelConfig,
     /// Whether opening a file in an untrusted workspace surfaces the trust modal. The statusline
-    /// `[⚠]` indicator is always shown either way; disabling the prompt is for users who would
-    /// rather act explicitly via `:workspace-trust` than be interrupted. Defaults to `true`.
+    /// `[⚠]` indicator is shown regardless. Defaults to `false`.
     pub prompt: bool,
     /// Glob patterns whose matching workspaces are implicitly trusted.
     pub trusted: Vec<String>,
@@ -456,7 +455,7 @@ impl Default for WorkspaceTrustConfig {
     fn default() -> Self {
         Self {
             level: ImplicitTrustLevelConfig::default(),
-            prompt: true,
+            prompt: false,
             trusted: Vec::new(),
         }
     }
@@ -468,12 +467,10 @@ pub enum ImplicitTrustLevelConfig {
     /// Don't trust anything implicitly — prompt for every new workspace.
     None,
     /// Trust Helix-launched server processes (LSP and DAP) implicitly. Workspace-local config and
-    /// git full-trust still require explicit `:workspace-trust`. This is the default — language
-    /// servers are configured globally, so auto-starting them in fresh workspaces matches user
-    /// expectations while the workspace-controlled `.helix/` config still requires opt-in.
-    #[default]
+    /// git full-trust still require explicit `:workspace-trust`.
     Servers,
-    /// Trust everything implicitly. Explicit excludes still win.
+    /// Trust everything implicitly. An explicit exclude overrides this. This is the default.
+    #[default]
     Insecure,
 }
 
